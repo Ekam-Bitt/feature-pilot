@@ -1,14 +1,20 @@
 # Verifies the claims the README makes.
 #
-# The offline suite is the whole point of this workflow: 354 tests that need no
+# The offline suite is the whole point of this workflow: 358 tests that need no
 # Docker daemon, no Postgres, no Redis and no API key, because every seam is
 # exercised against a fake `ToolRegistry` and a stub `Retriever`. If a node can
 # only be tested with a live container, the abstraction is decorative — so the
 # constraint that makes CI cheap is the same constraint that keeps the design
-# honest.
+# honest. 8 of the 358 skip here: they need a fixture virtualenv that is not
+# committed, so CI reports 350 passed, 8 skipped.
 #
-# Deliberately excluded: `-m docker` (needs a daemon and builds a 387 MB image)
-# and `-m llm` (spends real money). Both are run locally before a release.
+# Deliberately excluded, each needing something CI deliberately does not have:
+#   -m docker    a daemon, and a 387 MB image build
+#   -m postgres  the compose datastore
+#   -m llm       real money
+# All three are run locally before a release. Adding service containers here
+# would buy coverage at the cost of the property that makes this file cheap and
+# fast, and the gated suites are the ones whose failures are loud anyway.
 
 name: CI
 
