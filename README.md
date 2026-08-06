@@ -1,5 +1,17 @@
 # Feature Pilot
 
+[![CI](https://github.com/Ekam-Bitt/feature-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Ekam-Bitt/feature-pilot/actions/workflows/ci.yml)
+![tests](https://img.shields.io/badge/tests-354%20offline%20%2B%2026%20docker-brightgreen)
+![python](https://img.shields.io/badge/python-3.13-blue)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+**[Findings](#the-findings-in-one-line-each)** ·
+**[Example run](docs/example-run.md)** ·
+**[Retrospective](docs/engineering-retrospective.md)** ·
+**[Architecture](#architecture)** ·
+**[Evaluation](#evaluation-methodology)** ·
+**[Quickstart](#quickstart)**
+
 An autonomous software-engineering agent. Point it at a repository and an issue;
 it explores the codebase, writes a plan for you to approve, edits code in an
 isolated container, runs the test suite, repairs its own failures, and hands back
@@ -12,19 +24,68 @@ Issue → Retrieve → Plan → [your approval] → Code → Test → ⟲ Debug 
 Built on LangGraph, with tools discovered dynamically over MCP and all execution
 confined to a throwaway Docker container.
 
-**It works on a real repository.** It solves a genuine bug in
-[`pallets/click`](https://github.com/pallets/click) — 924k characters of source,
-7.7× more than fits in the context window it would need to read everything — for
-about $1.22 a run.
+**Validated on a real repository.** It completed an end-to-end repair of a genuine
+bug in [`pallets/click`](https://github.com/pallets/click) — 924k characters of
+source, 7.7× more than fits in the context window it would need to read everything
+— for about $1.22, with the repair loop firing live. That is one of six
+ground-truth cases run end to end; the other five are built and unrun.
 
 But the more useful part of this project is *why* it works, and the several
-confident assumptions that turned out to be wrong on the way. That's the
-[Engineering Findings](#engineering-findings) section, and it's the part worth
-reading.
+confident assumptions that turned out to be wrong on the way. The
+[one-line summary](#the-findings-in-one-line-each) is below and the
+[full detail](#engineering-findings) further down; that's the part worth reading.
 
-For the full narrative — what was tried, what was disproved, what it cost, and what
-I would build differently — see
-**[docs/engineering-retrospective.md](docs/engineering-retrospective.md)**.
+Two documents go deeper than this one:
+
+- **[docs/example-run.md](docs/example-run.md)** — one real bug, annotated end to
+  end: what retrieval surfaced, the first patch, the failure that killed it, the
+  second patch, and the passing suite. Every excerpt is a copied artifact.
+- **[docs/engineering-retrospective.md](docs/engineering-retrospective.md)** — the
+  full narrative: what was tried, what was disproved, what it cost, and what I
+  would build differently.
+
+---
+
+## Research question
+
+**Which components of an autonomous software-engineering agent materially improve
+correctness, and which merely add complexity?**
+
+Every experiment here answers part of that. Four of them answered in the opposite
+direction to what I expected, which is why the architecture looks the way it does
+rather than the way it was planned.
+
+## Results at a glance
+
+| | Outcome |
+|---|---|
+| Real repository | End-to-end repair of a genuine `pallets/click` bug, repair loop fired live — 1 of 6 ground-truth cases run |
+| Retrieval benchmark | P@3 **0.33 → 0.83** on click, **0.25 → 0.67** across both repositories, offline and free |
+| Second repository | Generalises in direction, not magnitude — rich 0.17 → 0.50, flat layout, no `src/` to exploit |
+| Correctness driver | **Ranking, not recall.** The right file was already in the candidate set in 6/6 cases |
+| Cost finding | Better retrieval bought correctness and **not** cost — $1.219 to pass vs $1.226 to fail |
+| Toy fixture | 5/5 solved — and a one-shot prompt with no tools, tests or repair loop tied it at 40% of the cost |
+| Tests | 354 offline (no Docker, no API key, 14s) + 26 containerised |
+| Total spend | **$8.43**, of which $3.77 bought four failed runs and one lesson about instruments |
+
+## The findings in one line each
+
+❌ marks a belief the measurement destroyed, ✅ one that survived, ⚠ a defect in
+how the work was being measured. Each links to the experiment that produced it.
+
+| | Finding |
+|---|---|
+| ❌ | [Whole-file retrieval was not the dominant cost](#1-whole-file-retrieval-was-not-the-dominant-cost) — windowing moved total tokens 2.6%, because a cap upstream was already binding |
+| ❌ | [Reducing context increased total cost](#2-reducing-context-increased-total-cost) — 406k → 680k tokens and 19 → 39 calls; with less state the agent re-explores |
+| ❌ | [Cumulative token budgets are the wrong instrument for a tool loop](#3-cumulative-token-budgets-are-the-wrong-instrument-for-a-tool-loop) — a re-sent transcript bills a cached prefix once per turn |
+| ❌ | [Candidate recall was already perfect](#4-candidate-recall-was-already-perfect) — 6/6 before ranking, so improving search was worth nothing |
+| ✅ | [The ranking objective was wrong, not the search](#5-the-ranking-objective-was-wrong-not-the-search) — content features beat mention-counting with no embeddings, vector store or reranker |
+| ❌ | [Query cleaning improved context size, not accuracy](#6-query-cleaning-improved-context-size-not-accuracy) — 34% less context, P@3 changed by exactly zero |
+| ⚠ | [A weak objective was gating the strong one](#7-a-weak-objective-was-gating-the-strong-one) — pipeline ordering, neither a retrieval nor a ranking bug |
+| ⚠ | [Offline and production disagreed about what a regex means](#8-offline-and-production-disagreed-about-what-a-regex-means) — the benchmark and the system it measured had divergent semantics |
+| ❌ | [Better retrieval buys correctness, not efficiency](#9-better-retrieval-buys-correctness-not-efficiency) — the headline: outcome flipped, spend did not move |
+| ❌ | [Prompt length is inversely related to signal density](#10-prompt-length-is-inversely-related-to-signal-density) — a 42-character commit subject beat a 1,321-character bug report |
+| ⚠ | [On the toy fixture, the whole agent tied a one-shot prompt](#11-on-the-toy-fixture-the-whole-agent-tied-a-one-shot-prompt) — a property of the fixture, and the reason the project moved to a real repository |
 
 ---
 
@@ -151,10 +212,15 @@ The headline result. Holding everything else constant and changing only the
 retriever: **2/2 PASS versus 0/2 FAIL, at 31 versus 29 model calls and $1.219
 versus $1.226.**
 
-Retrieval quality decides whether the agent is *right*. It does not measurably
-change what it *spends*. The agent costs about the same to succeed as it
-previously cost to fail — with poor retrieval it confidently patched the wrong
-place, failed its tests, and the debugger correctly declined to retry.
+With poor retrieval the agent confidently patched the wrong place, failed its
+tests, and the debugger correctly declined to retry. It was misdirected, not lazy —
+and being misdirected costs the same as being right.
+
+Stated at the width of the evidence: **under this architecture, on this case,
+changing only the retriever changed the outcome while leaving spend flat.** One
+controlled pair is not a solve rate. What it is — and what the four earlier runs
+were not — is a single-variable comparison, which is the only kind that can
+attribute anything.
 
 ### 10. Prompt length is inversely related to signal density
 
@@ -322,6 +388,12 @@ uv run pytest -m llm       # real model calls (costs tokens)
 The default suite deliberately runs without Docker or a live MCP server. If a node
 can't be exercised against a fake `ToolRegistry` and a stub `Retriever`, the
 abstraction is decorative — that constraint *is* the test.
+
+That constraint is also what makes CI cheap: every push runs `ruff check`,
+`ruff format --check`, `mypy src eval` and the 354-test offline suite, with no
+daemon, no datastore and no API key. `mypy` covers the evaluation harness as well as
+the agent, because three of this project's bugs corrupted *scoring* silently —
+a harness that miscounts is worse than no harness.
 
 ## Status
 

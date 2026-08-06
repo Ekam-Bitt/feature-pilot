@@ -8,6 +8,10 @@ and not a feature list. The interesting content is the [failed
 hypotheses](#failed-hypotheses), because that is where the architecture actually
 came from.
 
+For the system doing the work rather than the reasoning behind it, see
+[example-run.md](example-run.md): one real bug, annotated end to end, every excerpt
+copied from a run artifact.
+
 ---
 
 ## Original hypothesis
@@ -33,6 +37,30 @@ code, from a single 6-subsystem milestone down to a vertical slice (1A) with rea
 seams, deferring hybrid RAG to 1B. That decision is the reason the later pivots
 were cheap.
 
+## What was built
+
+The shape the rest of this document keeps referring to:
+
+```
+Issue
+  │
+  ▼
+┌── retrieval, decomposed ────────────────────────────────────────┐
+│   Query Generator ──▶ Retriever ──▶ Ranker ──▶ Context Builder  │
+│   query.py            filesystem.py  ranker.py  render_context  │
+└─────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+Plan ──▶ [human approval] ──▶ Code ──▶ Test ──▶ Review ──▶ PR summary
+                                 ▲        │
+                                 └─ Debug ◀── red suite, up to 3 attempts
+```
+
+The boxed half is one module in the original plan and four here; that split is the
+main architectural consequence of everything below. Findings 1 and 3–6 all live
+inside the box. The row beneath it — the part that looks like the whole agent —
+turned out to be where the money goes and where the least was learned.
+
 ---
 
 ## Timeline
@@ -48,7 +76,7 @@ were cheap.
 | Module isolation | Query falsified; recall measured 100%; ranking was the whole bottleneck |
 | Content ranker | click P@3 **0.33 → 0.83**, rich **0.17 → 0.50**, no path prior |
 | First click solve | **2/2 tests, $1.22**, repair loop fired live for the first time |
-| Attribution run | Retrieval decides correctness; **has no effect on cost** |
+| Attribution run | Changing only the retriever **flipped the outcome and left spend flat** |
 
 ---
 
@@ -119,6 +147,26 @@ One paid run per configuration, same case, only the retriever changed:
 
 ---
 
+## How the architecture actually got decided
+
+One figure for the whole process. Each row is an assumption I held confidently, the
+cheapest experiment that could have falsified it, what came back, and what changed
+in the code as a result.
+
+| Assumption | Experiment | Result | Architectural change |
+|---|---|---|---|
+| Whole-file retrieval is the dominant cost | Window to ±40 lines, measure total tokens | **2.6%** — an upstream cap was already binding | Kept for relevance; stopped treating context size as a cost lever |
+| Less context is cheaper | Cut per-call context 24k/60k → 9k/18k | **406k → 680k** tokens, 19 → 39 calls | Context floor restored; a **cost** ceiling replaced the token ceiling |
+| Retrieval recall is poor | Ask whether the truth was in the candidate set at all — 6 cases, $0, minutes | **6/6 already present** | Search work abandoned outright; all effort moved to ranking |
+| Query extraction is the accuracy bottleneck | Region-classify the extractor, re-run the benchmark | P@3 **±0.00**, context **−34%** | Kept as a context optimisation, explicitly not an accuracy one |
+| Mention count identifies the implementation | Content-feature ranker vs control, two repositories | click P@3 **0.33 → 0.83** | Ranking became its own module with its own objective |
+| Better retrieval is also cheaper | One paid run per retriever, single variable | Outcome flipped, **cost moved 0.5%** | Retrieval judged on correctness alone; cost work aimed at the coder (90% of spend) |
+
+Read top to bottom, that table is the project. Five of six assumptions were wrong,
+and the one that survived is the only one that changed a file.
+
+---
+
 ## Failed hypotheses
 
 The core of the project. Six confident beliefs, each disproved by the cheapest
@@ -164,10 +212,15 @@ cut context 34%. The queries were genuinely bad *and* were not the bottleneck.
 
 The headline. **2/2 PASS vs 0/2 FAIL at 31 vs 29 calls and $1.219 vs $1.226.**
 
-Retrieval quality decides whether the agent is *right*. It does not measurably
-change what it *spends*. The agent costs the same to succeed as it cost to fail —
-with poor retrieval it confidently patched the wrong place, failed its tests, and
-the debugger correctly declined to retry. It wasn't lazy; it was misdirected.
+With poor retrieval the agent confidently patched the wrong place, failed its tests,
+and the debugger correctly declined to retry. It wasn't lazy; it was misdirected —
+and being misdirected costs the same as being right.
+
+Stated at the width of the evidence, because it is the claim most worth not
+overstating: **under this architecture, on this case, changing only the retriever
+changed the outcome while leaving spend flat.** That is one controlled pair, not a
+solve rate. Its value is that it is single-variable — the four runs before it were
+not, which is exactly why they cost $3.77 and settled nothing.
 
 I had also read an earlier 39→31 call drop as evidence retrieval was working. It
 wasn't — that came from the budget and timeout fixes. The controlled run is what
@@ -326,6 +379,49 @@ progression, not any individual test suite, is what actually found the defects.
 7. **Check whether the constraint is binding before optimising it.** Windowed
    retrieval was correct, useful for relevance, and bought no tokens, because a cap
    upstream was already the limit.
+
+---
+
+## Transferable lessons
+
+The seven above are things I would do differently *here*. These are the same
+lessons with the project removed — the part I expect to carry into work that has
+nothing to do with agents or retrieval.
+
+**Build the instrument before the thing it measures.** An unmeasured system will
+absorb any amount of plausible improvement without telling you whether it moved.
+Four failed runs and $3.77 bought less than a deterministic benchmark that ran in
+seconds and cost nothing, and the benchmark was buildable first.
+
+**Falsify the cheapest hypothesis first, not the most interesting one.** "Is the
+answer even in the candidate set?" took minutes and immediately closed off every
+line of work aimed at search. The expensive hypothesis is rarely the one that
+constrains the others.
+
+**Confirm a constraint binds before optimising it.** A correct optimisation of a
+non-binding variable produces a real improvement and zero effect, which is worse
+than a failure because it looks like progress.
+
+**One variable per experiment, or accept you have measured an interaction.** The
+run that "proved" smaller context increases exploration changed two things, and the
+conclusion is permanently weaker for it. Attribution is the whole value of a
+controlled comparison; two variables destroy it for the same cost.
+
+**A shared convention needs one home, not two implementations that agree.** Both
+drift bugs here — an error prefix across an MCP server and its client, a retriever
+factory across production and the benchmark — were "matching" code in two files.
+Matching is a state, not a property; it decays silently and the failure surfaces
+somewhere unrelated.
+
+**Assert on your setup, not only your assertion.** The most serious bug in this
+project sat behind 100+ passing tests because a test performed a write and never
+checked that the write succeeded. Green means "nothing I checked was wrong."
+
+**Prefer the measurement that can be wrong loudly.** Three defects here corrupted
+scoring instead of crashing: truncated test IDs, aborted collection, a crashed
+suite read as "nothing failed." Each produced a clean-looking number. Instruments
+need failure modes that are visible, and a result you cannot parse must never be
+recorded as a pass.
 
 ---
 
