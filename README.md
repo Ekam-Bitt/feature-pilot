@@ -22,6 +22,10 @@ confident assumptions that turned out to be wrong on the way. That's the
 [Engineering Findings](#engineering-findings) section, and it's the part worth
 reading.
 
+For the full narrative — what was tried, what was disproved, what it cost, and what
+I would build differently — see
+**[docs/engineering-retrospective.md](docs/engineering-retrospective.md)**.
+
 ---
 
 ## What was actually measured
@@ -318,6 +322,12 @@ uv run pytest -m llm       # real model calls (costs tokens)
 The default suite deliberately runs without Docker or a live MCP server. If a node
 can't be exercised against a fake `ToolRegistry` and a stub `Retriever`, the
 abstraction is decorative — that constraint *is* the test.
+
+## Status
+
+**v1.0.** Complete, with limitations documented below rather than hidden. Remaining
+work is filed as issues and deliberately unbuilt — each strengthens an existing
+claim rather than unlocking a new one.
 
 ## Known limitations
 
