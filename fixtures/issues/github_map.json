@@ -1,0 +1,10 @@
+{
+  "repo": "Ekam-Bitt/featurepilot-fixture",
+  "issues": {
+    "01-off-by-one.md": 1,
+    "02-unknown-sku-crash.md": 2,
+    "03-missing-draft-orders.md": 3,
+    "04-promo-stacking.md": 4,
+    "05-free-shipping-threshold.md": 5
+  }
+}

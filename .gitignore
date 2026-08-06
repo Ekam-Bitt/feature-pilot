@@ -1,0 +1,23 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+.DS_Store
+
+# Local run scratch: sandbox worktrees, indexes, captured artifacts.
+.fp/
+
+# Local session history from the Remember plugin. Machine-local notes, not
+# project content.
+.remember/
+
+# Local Claude Code config and third-party skills. The LangSmith skills are
+# LangChain's (MIT) and installable from upstream; see the README. Nothing in
+# here is part of the project.
+.claude/

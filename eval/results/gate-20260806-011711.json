@@ -1,0 +1,36 @@
+{
+  "outcomes": [
+    {
+      "issue": "02-unknown-sku-crash.md",
+      "difficulty": "easy",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_inventory.py::TestAvailability::test_unknown_sku_is_unavailable",
+        "tests/test_inventory.py::TestAvailableUnits::test_unknown_sku_is_zero_not_an_error",
+        "tests/test_inventory.py::TestReserve::test_reserving_unknown_sku_raises",
+        "tests/test_inventory.py::TestRestock::test_restock_creates_a_ledger_entry"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "model_calls": 7,
+      "tool_calls": 19,
+      "input_tokens": 42740,
+      "output_tokens": 2514,
+      "cost_usd": 0.1058,
+      "wall_seconds": 67.8,
+      "error": null
+    }
+  ],
+  "passed": false,
+  "notes": [
+    "FAIL  only 1/1 issues solved cleanly (needed 3)",
+    "SKIP  repair-loop case was not run",
+    "PASS  no run broke a previously-passing test"
+  ]
+}

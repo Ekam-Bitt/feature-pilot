@@ -1,0 +1,110 @@
+[
+  {
+    "issue": "01-off-by-one.md",
+    "difficulty": "easy",
+    "solved": true,
+    "clean": true,
+    "resolved": [
+      "tests/test_pricing.py::TestAcrossLines::test_sums_per_line_independently",
+      "tests/test_pricing.py::TestDiscountAmount::test_fifteen_percent_at_the_boundary",
+      "tests/test_pricing.py::TestDiscountAmount::test_five_percent_at_the_boundary",
+      "tests/test_pricing.py::TestDiscountAmount::test_ten_percent_at_the_boundary",
+      "tests/test_pricing.py::TestTierSelection::test_middle_tier_applies_at_exactly_ten",
+      "tests/test_pricing.py::TestTierSelection::test_tier_applies_at_exactly_five",
+      "tests/test_pricing.py::TestTierSelection::test_top_tier_applies_at_exactly_twenty"
+    ],
+    "missing": [],
+    "regressions": [],
+    "files_written": [
+      "src/shopsvc/pricing.py"
+    ],
+    "input_tokens": 16407,
+    "output_tokens": 867,
+    "cost_usd": 0.0415,
+    "wall_seconds": 37.4,
+    "error": null
+  },
+  {
+    "issue": "02-unknown-sku-crash.md",
+    "difficulty": "easy",
+    "solved": true,
+    "clean": true,
+    "resolved": [
+      "tests/test_inventory.py::TestAvailability::test_unknown_sku_is_unavailable",
+      "tests/test_inventory.py::TestAvailableUnits::test_unknown_sku_is_zero_not_an_error",
+      "tests/test_inventory.py::TestReserve::test_reserving_unknown_sku_raises",
+      "tests/test_inventory.py::TestRestock::test_restock_creates_a_ledger_entry"
+    ],
+    "missing": [],
+    "regressions": [],
+    "files_written": [
+      "src/shopsvc/inventory.py"
+    ],
+    "input_tokens": 16350,
+    "output_tokens": 980,
+    "cost_usd": 0.0425,
+    "wall_seconds": 36.4,
+    "error": null
+  },
+  {
+    "issue": "03-missing-draft-orders.md",
+    "difficulty": "medium",
+    "solved": true,
+    "clean": true,
+    "resolved": [
+      "tests/test_repository.py::TestOrderHistory::test_includes_a_draft_with_no_items",
+      "tests/test_repository.py::TestOrderHistory::test_returns_every_order_for_the_customer"
+    ],
+    "missing": [],
+    "regressions": [],
+    "files_written": [
+      "src/shopsvc/repository.py"
+    ],
+    "input_tokens": 16264,
+    "output_tokens": 1230,
+    "cost_usd": 0.0448,
+    "wall_seconds": 39.1,
+    "error": null
+  },
+  {
+    "issue": "04-promo-stacking.md",
+    "difficulty": "hard",
+    "solved": true,
+    "clean": true,
+    "resolved": [
+      "tests/test_cart.py::TestPromoStacking::test_stack_is_capped",
+      "tests/test_cart.py::TestPromoStacking::test_two_codes_stack_additively"
+    ],
+    "missing": [],
+    "regressions": [],
+    "files_written": [
+      "src/shopsvc/promotions.py",
+      "src/shopsvc/cart.py"
+    ],
+    "input_tokens": 16378,
+    "output_tokens": 2153,
+    "cost_usd": 0.0543,
+    "wall_seconds": 44.1,
+    "error": null
+  },
+  {
+    "issue": "05-free-shipping-threshold.md",
+    "difficulty": "hard",
+    "solved": true,
+    "clean": true,
+    "resolved": [
+      "tests/test_cart.py::TestShippingUsesThePayableAmount::test_promo_discount_drops_order_below_threshold",
+      "tests/test_cart.py::TestShippingUsesThePayableAmount::test_quantity_discount_drops_order_below_threshold"
+    ],
+    "missing": [],
+    "regressions": [],
+    "files_written": [
+      "src/shopsvc/cart.py"
+    ],
+    "input_tokens": 16479,
+    "output_tokens": 987,
+    "cost_usd": 0.0428,
+    "wall_seconds": 35.6,
+    "error": null
+  }
+]

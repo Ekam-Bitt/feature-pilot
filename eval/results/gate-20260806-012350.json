@@ -1,0 +1,136 @@
+{
+  "outcomes": [
+    {
+      "issue": "01-off-by-one.md",
+      "difficulty": "easy",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_pricing.py::TestAcrossLines::test_sums_per_line_independently",
+        "tests/test_pricing.py::TestDiscountAmount::test_fifteen_percent_at_the_boundary",
+        "tests/test_pricing.py::TestDiscountAmount::test_five_percent_at_the_boundary",
+        "tests/test_pricing.py::TestDiscountAmount::test_ten_percent_at_the_boundary",
+        "tests/test_pricing.py::TestTierSelection::test_middle_tier_applies_at_exactly_ten",
+        "tests/test_pricing.py::TestTierSelection::test_tier_applies_at_exactly_five",
+        "tests/test_pricing.py::TestTierSelection::test_top_tier_applies_at_exactly_twenty"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "model_calls": 6,
+      "tool_calls": 19,
+      "input_tokens": 41118,
+      "output_tokens": 1839,
+      "cost_usd": 0.0963,
+      "wall_seconds": 65.2,
+      "error": null
+    },
+    {
+      "issue": "02-unknown-sku-crash.md",
+      "difficulty": "easy",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_inventory.py::TestAvailability::test_unknown_sku_is_unavailable",
+        "tests/test_inventory.py::TestAvailableUnits::test_unknown_sku_is_zero_not_an_error",
+        "tests/test_inventory.py::TestReserve::test_reserving_unknown_sku_raises",
+        "tests/test_inventory.py::TestRestock::test_restock_creates_a_ledger_entry"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "model_calls": 7,
+      "tool_calls": 19,
+      "input_tokens": 41658,
+      "output_tokens": 1827,
+      "cost_usd": 0.097,
+      "wall_seconds": 100.7,
+      "error": null
+    },
+    {
+      "issue": "03-missing-draft-orders.md",
+      "difficulty": "medium",
+      "phase": "CRASHED",
+      "solved": false,
+      "clean": false,
+      "scoped": false,
+      "used_repair_loop": false,
+      "attempts": 0,
+      "resolved": [],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "model_calls": 0,
+      "tool_calls": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0.0,
+      "wall_seconds": 0.0,
+      "error": "RuntimeError: generator didn't stop after athrow()"
+    },
+    {
+      "issue": "04-promo-stacking.md",
+      "difficulty": "hard",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": false,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_cart.py::TestPromoStacking::test_stack_is_capped",
+        "tests/test_cart.py::TestPromoStacking::test_two_codes_stack_additively"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [
+        "tests/test_promotions.py"
+      ],
+      "model_calls": 11,
+      "tool_calls": 25,
+      "input_tokens": 95069,
+      "output_tokens": 5709,
+      "cost_usd": 0.2409,
+      "wall_seconds": 98.4,
+      "error": null
+    },
+    {
+      "issue": "05-free-shipping-threshold.md",
+      "difficulty": "hard",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_cart.py::TestShippingUsesThePayableAmount::test_promo_discount_drops_order_below_threshold",
+        "tests/test_cart.py::TestShippingUsesThePayableAmount::test_quantity_discount_drops_order_below_threshold"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "model_calls": 8,
+      "tool_calls": 20,
+      "input_tokens": 58039,
+      "output_tokens": 2590,
+      "cost_usd": 0.137,
+      "wall_seconds": 70.6,
+      "error": null
+    }
+  ],
+  "passed": true,
+  "notes": [
+    "PASS  4/5 issues solved cleanly (needed 3)",
+    "NOTE  the repair-loop case did not need the debugger (solved first try \u2014 better than expected, but the loop is unexercised)",
+    "PASS  no run broke a previously-passing test"
+  ]
+}

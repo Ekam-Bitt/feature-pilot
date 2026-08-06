@@ -1,0 +1,27 @@
+[
+  {
+    "issue": "01-off-by-one.md",
+    "difficulty": "easy",
+    "solved": true,
+    "clean": true,
+    "resolved": [
+      "tests/test_pricing.py::TestAcrossLines::test_sums_per_line_independently",
+      "tests/test_pricing.py::TestDiscountAmount::test_fifteen_percent_at_the_boundary",
+      "tests/test_pricing.py::TestDiscountAmount::test_five_percent_at_the_boundary",
+      "tests/test_pricing.py::TestDiscountAmount::test_ten_percent_at_the_boundary",
+      "tests/test_pricing.py::TestTierSelection::test_middle_tier_applies_at_exactly_ten",
+      "tests/test_pricing.py::TestTierSelection::test_tier_applies_at_exactly_five",
+      "tests/test_pricing.py::TestTierSelection::test_top_tier_applies_at_exactly_twenty"
+    ],
+    "missing": [],
+    "regressions": [],
+    "files_written": [
+      "src/shopsvc/pricing.py"
+    ],
+    "input_tokens": 16407,
+    "output_tokens": 872,
+    "cost_usd": 0.0415,
+    "wall_seconds": 38.3,
+    "error": null
+  }
+]

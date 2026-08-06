@@ -1,0 +1,135 @@
+[project]
+name = "featurepilot"
+version = "0.1.0"
+description = "Multi-agent software engineering assistant: GitHub issue in, tested patch out."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+
+dependencies = [
+    # --- orchestration ---
+    "langgraph>=1.2.10",
+    "langchain-core>=1.0",
+    "langgraph-checkpoint-postgres>=3.1.1",
+    # --- model access (provider-agnostic via LiteLLM) ---
+    "langchain-litellm>=0.7.0",
+    "litellm>=1.95.0",
+    # --- tools ---
+    # langchain-mcp-adapters is deliberately NOT used: it declares mcp>=1.24.0
+    # with no upper bound and imports `mcp.server.fastmcp`, which mcp 2.0
+    # removed. Its only job was JSON-schema -> LangChain tool conversion, which
+    # is exactly what tools/mcp_loader.py + tools/langchain_adapter.py own here.
+    # Staying on mcp 2.0 avoids pinning to a superseded major version.
+    "mcp>=2.0.0",
+    # --- datastores ---
+    "psycopg[binary,pool]>=3.3.4",
+    "redis>=6.0",
+    # --- sandbox ---
+    "docker>=7.1.0",
+    # --- api + cli ---
+    "fastapi>=0.120",
+    "uvicorn[standard]>=0.38",
+    "sse-starlette>=2.1",
+    "httpx>=0.28",
+    "typer>=0.27.1",
+    "rich>=14.0",
+    # --- config ---
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+]
+
+[project.optional-dependencies]
+# Phase 1B. Kept out of the default install so `uv sync` stays fast and
+# nothing pulls a 130MB ONNX model before retrieval work begins.
+rag = [
+    "fastembed>=0.8.0",
+    "rank-bm25>=0.2.2",
+    "tree-sitter>=0.26.0",
+    "tree-sitter-language-pack>=1.14.2",
+    "pgvector>=0.5.0",
+]
+# Optional hosted embeddings/reranking. Absent => local fastembed path.
+voyage = ["voyageai>=0.5.0"]
+# Optional tracing. Absent => tracing degrades to a no-op.
+tracing = [
+    "langsmith>=0.6",
+]
+
+[project.scripts]
+fpilot = "featurepilot.cli.main:app"
+fpilot-api = "featurepilot.api.main:serve"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=1.0",
+    "ruff>=0.14",
+    "mypy>=1.14",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/featurepilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Repo root on sys.path so tests can import the eval dataset.
+pythonpath = ["."]
+# Seam tests must run without Docker or a live MCP server. Anything that
+# genuinely needs them is marked and excluded from the default run.
+markers = [
+    "docker: requires a running Docker daemon",
+    "llm: makes real model API calls (costs tokens)",
+]
+addopts = "-m 'not docker and not llm' --strict-markers"
+# `TesterOutput` is a Pydantic contract, not a test class. pytest warns on any
+# Test*-named class it cannot collect; renaming a core contract to appease the
+# collector would be the tail wagging the dog.
+filterwarnings = [
+    "ignore:cannot collect test class 'Tester:pytest.PytestCollectionWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+# The fixture is a separate project with deliberately imperfect code that the
+# agent is meant to work on. Linting it is wrong, and `ruff --fix` over it could
+# silently alter a seeded defect and invalidate the eval set.
+extend-exclude = ["fixtures/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pytest node IDs are long by nature; wrapping them would break lookup
+# by copy-paste, which is the whole point of storing the full ID.
+# ASYNC109 wants `timeout` params replaced by asyncio.timeout(). Here the
+# timeout is enforced by coreutils `timeout` INSIDE the container: the docker
+# exec API has no cancellation, so an asyncio deadline would hand back control
+# while leaving the process running in the sandbox.
+"src/featurepilot/sandbox/runner.py" = ["ASYNC109"]
+# FakeSandbox mirrors Sandbox.exec's signature so a node cannot tell them
+# apart; the same ASYNC109 reasoning applies.
+"tests/fakes.py" = ["ASYNC109"]
+# Typer declares CLI options as call-expression defaults by design; B008
+# assumes that pattern is a mutable-default bug, which it is not here.
+"src/featurepilot/cli/main.py" = ["B008"]
+"eval/dataset.py" = ["E501"]
+"tests/test_dataset.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+# `fakes` is tests/fakes.py, imported bare because tests/ is not a package
+# (pytest puts the test dir on sys.path). Declaring it first-party keeps import
+# ordering stable instead of drifting between runs.
+known-first-party = ["featurepilot", "fakes"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+# Third-party packages without stubs.
+[[tool.mypy.overrides]]
+module = ["docker.*", "litellm.*", "langchain_litellm.*", "fastembed.*", "voyageai.*"]
+ignore_missing_imports = true

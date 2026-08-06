@@ -1,0 +1,151 @@
+{
+  "outcomes": [
+    {
+      "issue": "01-off-by-one.md",
+      "difficulty": "easy",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_pricing.py::TestAcrossLines::test_sums_per_line_independently",
+        "tests/test_pricing.py::TestDiscountAmount::test_fifteen_percent_at_the_boundary",
+        "tests/test_pricing.py::TestDiscountAmount::test_five_percent_at_the_boundary",
+        "tests/test_pricing.py::TestDiscountAmount::test_ten_percent_at_the_boundary",
+        "tests/test_pricing.py::TestTierSelection::test_middle_tier_applies_at_exactly_ten",
+        "tests/test_pricing.py::TestTierSelection::test_tier_applies_at_exactly_five",
+        "tests/test_pricing.py::TestTierSelection::test_top_tier_applies_at_exactly_twenty"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "touched_tests": [],
+      "tests_disappeared": 0,
+      "model_calls": 7,
+      "tool_calls": 20,
+      "input_tokens": 50267,
+      "output_tokens": 1994,
+      "cost_usd": 0.1152,
+      "wall_seconds": 65.1,
+      "error": null
+    },
+    {
+      "issue": "02-unknown-sku-crash.md",
+      "difficulty": "easy",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_inventory.py::TestAvailability::test_unknown_sku_is_unavailable",
+        "tests/test_inventory.py::TestAvailableUnits::test_unknown_sku_is_zero_not_an_error",
+        "tests/test_inventory.py::TestReserve::test_reserving_unknown_sku_raises",
+        "tests/test_inventory.py::TestRestock::test_restock_creates_a_ledger_entry"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "touched_tests": [],
+      "tests_disappeared": 0,
+      "model_calls": 7,
+      "tool_calls": 19,
+      "input_tokens": 42518,
+      "output_tokens": 2095,
+      "cost_usd": 0.1009,
+      "wall_seconds": 65.1,
+      "error": null
+    },
+    {
+      "issue": "03-missing-draft-orders.md",
+      "difficulty": "medium",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_repository.py::TestOrderHistory::test_includes_a_draft_with_no_items",
+        "tests/test_repository.py::TestOrderHistory::test_returns_every_order_for_the_customer"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "touched_tests": [],
+      "tests_disappeared": 0,
+      "model_calls": 7,
+      "tool_calls": 19,
+      "input_tokens": 50762,
+      "output_tokens": 1909,
+      "cost_usd": 0.1163,
+      "wall_seconds": 63.0,
+      "error": null
+    },
+    {
+      "issue": "04-promo-stacking.md",
+      "difficulty": "hard",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_cart.py::TestPromoStacking::test_stack_is_capped",
+        "tests/test_cart.py::TestPromoStacking::test_two_codes_stack_additively"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "touched_tests": [
+        "tests/test_promotions.py"
+      ],
+      "tests_disappeared": 0,
+      "model_calls": 10,
+      "tool_calls": 25,
+      "input_tokens": 84826,
+      "output_tokens": 5611,
+      "cost_usd": 0.2197,
+      "wall_seconds": 106.3,
+      "error": null
+    },
+    {
+      "issue": "05-free-shipping-threshold.md",
+      "difficulty": "hard",
+      "phase": "DONE",
+      "solved": true,
+      "clean": true,
+      "scoped": true,
+      "used_repair_loop": false,
+      "attempts": 1,
+      "resolved": [
+        "tests/test_cart.py::TestShippingUsesThePayableAmount::test_promo_discount_drops_order_below_threshold",
+        "tests/test_cart.py::TestShippingUsesThePayableAmount::test_quantity_discount_drops_order_below_threshold"
+      ],
+      "missing": [],
+      "regressions": [],
+      "unexpected_files": [],
+      "touched_tests": [],
+      "tests_disappeared": 0,
+      "model_calls": 8,
+      "tool_calls": 20,
+      "input_tokens": 58814,
+      "output_tokens": 2718,
+      "cost_usd": 0.1392,
+      "wall_seconds": 68.8,
+      "error": null
+    }
+  ],
+  "passed": true,
+  "notes": [
+    "PASS  5/5 issues solved cleanly (needed 3)",
+    "NOTE  the repair-loop case did not need the debugger (solved first try \u2014 better than expected, but the loop is unexercised)",
+    "PASS  no run removed a test",
+    "NOTE  test files were touched (adding coverage is fine; verify none were weakened): [\"04-promo-stacking.md: ['tests/test_promotions.py']\"]",
+    "PASS  no run broke a previously-passing test"
+  ]
+}
