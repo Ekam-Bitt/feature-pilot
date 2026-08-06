@@ -24,9 +24,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-# A force-push mid-run should cancel the superseded run, not queue behind it.
+# A second push mid-run should cancel the superseded run rather than queue behind
+# it. The event name is part of the group deliberately: without it, running this
+# workflow by hand cancels an in-flight push run for the same ref — and the push
+# run is the one the README badge reflects, so a manual check would quietly
+# destroy the result of record.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
