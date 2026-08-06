@@ -24,6 +24,7 @@ from pathlib import Path
 from eval.oss import (
     DEFAULT_CLONE,
     DEFAULT_REPO,
+    MIN_COLLECTED,
     OSSCase,
     build_case,
     candidate_commits,
@@ -31,7 +32,7 @@ from eval.oss import (
     rank_candidates,
 )
 from featurepilot.config import get_settings
-from featurepilot.graph.nodes.tester import TEST_COMMAND, collected_total, failing_ids
+from featurepilot.graph.nodes.tester import collected_total, failing_ids
 from featurepilot.sandbox.runner import Sandbox
 
 CASES_FILE = Path("eval/oss_cases.json")
@@ -40,9 +41,23 @@ CASES_FILE = Path("eval/oss_cases.json")
 INSTALL = "pip install -e '.[dev]' || pip install -e . && pip install pytest"
 
 
-async def _run_suite(box: Sandbox) -> tuple[set[str], int]:
-    result = await box._exec_shell(TEST_COMMAND, timeout=900)
-    return failing_ids(result.combined), collected_total(result.combined)
+async def _run_suite(box: Sandbox, command: str) -> tuple[set[str], int, str]:
+    """Run the suite and report failures, collected count, and any problem.
+
+    The third element distinguishes "the suite ran and nothing failed" from "the
+    suite never produced a summary". Conflating them is how a truncated run gets
+    recorded as a clean one — click's pager tests killed the process at ~92% with
+    no summary, and every affected case was silently dropped as unfixable.
+    """
+    result = await box._exec_shell(command, timeout=900)
+    output = result.combined
+    total = collected_total(output)
+
+    if "passed" not in output and "failed" not in output and "error" not in output.lower():
+        return set(), total, "the suite produced no parseable summary (crashed or truncated)"
+    if total < MIN_COLLECTED:
+        return set(), total, f"only {total} test(s) collected; the suite did not really run"
+    return failing_ids(output), total, ""
 
 
 async def validate(case: OSSCase, clone: Path) -> tuple[bool, str]:
@@ -57,7 +72,9 @@ async def validate(case: OSSCase, clone: Path) -> tuple[bool, str]:
         await box.cut_network()
         await box.snapshot()
 
-        with_bug, total = await _run_suite(box)
+        with_bug, total, problem = await _run_suite(box, case.test_command)
+        if problem:
+            return False, problem
         if not with_bug:
             # Nothing fails, so there is no signal distinguishing a fix from a
             # no-op. Usually means the test did not actually cover the change.
@@ -69,7 +86,9 @@ async def validate(case: OSSCase, clone: Path) -> tuple[bool, str]:
             written = await _restore_from_git(box, clone, case.sha, path)
             if not written:
                 return False, f"could not restore {path} from the fixing commit"
-        with_fix, _ = await _run_suite(box)
+        with_fix, _, problem = await _run_suite(box, case.test_command)
+        if problem:
+            return False, f"after restoring the fix: {problem}"
 
         flipped = with_bug - with_fix
         if not flipped:
@@ -144,10 +163,11 @@ async def main() -> int:
 
         if ok:
             good.append(case)
+            located = "  [issue names the file]" if case.names_source_path else ""
             print(
                 f"    KEEP  fail_to_pass={len(case.fail_to_pass)} "
                 f"of {case.collected_total} collected  "
-                f"issue={case.issue_source}  ({elapsed:.0f}s)",
+                f"issue={case.issue_source}{located}  ({elapsed:.0f}s)",
                 flush=True,
             )
         else:
@@ -156,6 +176,13 @@ async def main() -> int:
 
     print(f"\n{len(good)} usable case(s), {len(rejected)} rejected")
     if good:
+        located = [c for c in good if c.names_source_path]
+        if located:
+            print(
+                f"\nNOTE: {len(located)} case(s) name a file the fix must change "
+                f"({', '.join(c.sha[:9] for c in located)}). Real reports do link to "
+                "code, but those cases test diagnosis without testing retrieval."
+            )
         leaky = [c for c in good if "may leak" in c.issue_source]
         if leaky:
             print(
@@ -174,7 +201,8 @@ async def main() -> int:
                             **{
                                 k: (sorted(v) if isinstance(v, frozenset) else v)
                                 for k, v in asdict(c).items()
-                            }
+                            },
+                            "names_source_path": c.names_source_path,
                         }
                         for c in good
                     ],

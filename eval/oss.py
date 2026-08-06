@@ -43,6 +43,25 @@ WORKTREES = Path(__file__).resolve().parents[1] / ".fp" / "oss"
 DEFAULT_REPO = "pallets/click"
 DEFAULT_CLONE = Path("/tmp/oss-eval/click")
 
+#: Extra pytest arguments per target repository.
+#:
+#: click's pager tests spawn a subprocess that kills the run: the suite dies at
+#: ~92% with no summary line at all, so every case looked like "no failing tests"
+#: when the truth was "the suite never finished". Deselecting them yields 1474
+#: collected instead of 0.
+#:
+#: Per-target rather than global on purpose — this is one repository's quirk, and
+#: baking `-k 'not pager'` into the shared TEST_COMMAND would silently skip tests
+#: in every other repo that happens to use the word.
+EXTRA_PYTEST_ARGS: dict[str, str] = {
+    "pallets/click": "-k 'not pager'",
+}
+
+#: Below this, the suite did not really run. click collects ~1700; a case
+#: reporting 1 or 2 is a broken reconstruction that measures nothing, and
+#: accepting it would put a case in the set that no patch can affect.
+MIN_COLLECTED = 200
+
 #: A commit is a candidate when it changes both source and tests and stays small.
 #: Large commits are usually refactors or releases, where "the bug" is not a
 #: single identifiable thing an agent could be asked to fix.
@@ -97,6 +116,29 @@ class OSSCase:
     @property
     def case_dir(self) -> Path:
         return WORKTREES / f"{self.sha[:9]}"
+
+    @property
+    def test_command(self) -> str:
+        """The suite command for this target, including any per-repo args."""
+        from featurepilot.graph.nodes.tester import TEST_COMMAND
+
+        extra = EXTRA_PYTEST_ARGS.get(self.repo, "")
+        return f"{TEST_COMMAND} {extra}".strip()
+
+    @property
+    def names_source_path(self) -> bool:
+        """Whether the issue text points at a file the fix has to change.
+
+        Real bug reports link to code constantly — issue #2877 embeds a GitHub
+        permalink to `src/click/types.py#L929`. That is not leaking the *fix*
+        (what to change is still unknown), but it does remove the *search*, which
+        is the whole reason for moving off a fixture that fits in one prompt.
+
+        Recorded rather than rejected. Excluding such issues would bias the set
+        toward unrealistically vague reports; segmenting results by this flag
+        answers "does retrieval matter" honestly instead of assuming it away.
+        """
+        return any(path in self.issue for path in self.source_files)
 
     @property
     def usable(self) -> bool:

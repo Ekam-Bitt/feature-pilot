@@ -1,0 +1,163 @@
+{
+  "repo": "pallets/click",
+  "built_at": "2026-08-06T11:37:54",
+  "cases": [
+    {
+      "repo": "pallets/click",
+      "sha": "93ba0075f4881b858b61f89a753c7c10e330027e",
+      "title": "Strip ANSI from `confirm()` and `prompt()` when the stream don't support them",
+      "issue": "# ANSI codes not stripped from click.confirm after upgrading to click 8.4\n\n<!--\nThis issue tracker is a tool to address bugs in Click itself. Please use\nGitHub Discussions or the Pallets Discord for questions about your own code.\n\nReplace this comment with a clear outline of what the bug is.\n-->\nI had failing unit tests after upgrading to click 8.4.1. I was able to address some \nby using `runner.invoke(cmd, color=False)`, but that didn't help for commands\nthat use `click.confirm()`\n\n<!--\nDescribe how to replicate the bug.\n\nInclude a minimal reproducible example that demonstrates the bug.\nInclude the full traceback if there was an exception.\n-->\n\nThis test script `test_repro.py` replicates the issue.\n```\nimport click\nfrom click.testing import CliRunner\n\n\n@click.command()\ndef cmd():\n    click.echo(click.style('Hello World!', fg='green'))\n\n\n@click.command()\ndef cmd_confirm():\n    click.confirm(click.style('Hello World!', fg='green'), abort=True)\n\n\ndef test_echo_strips_ansi_with_color_false():\n    runner = CliRunner()\n    result = runner.invoke(cmd, color=False)\n    assert result.output == \"Hello World!\\n\"\n\n\ndef test_confirm_strips_ansi_with_color_false():\n    runner = CliRunner()\n    result = runner.invoke(cmd_confirm, input=\"Y\", color=False)\n    assert result.output == \"Hello World! [y/N]: Y\\n\"  # FAILS: ANSI codes present\n```\n\nWith click 8.3.3 both tests pass. With click 8.4.0 and 8.4.1, the `test_confirm_strips_ansi_with_color_false` test fails:\n\n```\nuvx --with click==8.4 pytest test_repro.py\n...\n================================================ FAILURES ================================================\n_______________________________ test_confirm_strips_ansi_with_color_false ________________________________\n\n    def test_confirm_strips_ansi_with_color_false():\n        runner = CliRunner()\n        result = runner.invoke(cmd_confirm, input=\"Y\", color=False)\n>       assert result.output == \"Hello World! [y/N]: Y\\n\"  # FAILS: ANSI codes present\n```\n\n<!--\nDescribe the expected behavior that should have happened but didn't.\n-->\nThe ansi codes should be stripped when running click.confirm, as they are for click.echo.\n\nEnvironment:\n\n- Python version: 3.13\n- Click version: 8.4.1\n- MacOS\n\n",
+      "issue_source": "issue #3572",
+      "source_files": [
+        "src/click/termui.py"
+      ],
+      "test_files": [
+        "tests/test_termui.py"
+      ],
+      "fail_to_pass": [
+        "tests/test_termui.py::test_prompt_and_confirm_ansi_respects_color[confirm-no-color]",
+        "tests/test_termui.py::test_prompt_and_confirm_ansi_respects_color[prompt-no-color]"
+      ],
+      "collected_total": 1614,
+      "baseline_failures": [],
+      "notes": "",
+      "names_source_path": false
+    },
+    {
+      "repo": "pallets/click",
+      "sha": "6f85d26dcd50c1745e81040ed4f2b61f8bf293cf",
+      "title": "Do not trigger a `BytesWarning` under `python -bb`",
+      "issue": "# [Python forward compat] click.types.Path.covert: BytesWarning: Comparison between bytes and string\n\nSo I've hit this through pip-tools' `pip-compile` executable some time ago but forgot to report immediately.\n\nI tend to run Python with strictness like `python -I -s -E -bb -Werror -m piptools compile --some --args`. And that's how I've found this warning. I imagine, it's easy to address by changing the check here: https://github.com/pallets/click/blob/c9f7d9d/src/click/types.py#L929C64-L929C75. Perhaps, by converting the data type.\n\nHere's a minimal repro. In needs a modern enough Python for `-bb` IIRC.\n```console\n$ python -Im pip install Click\n$ python -bb -Werror\nPython 3.12.9 (main, Feb 22 2025, 21:46:24) [GCC 14.2.1 20241221] on linux\nType \"help\", \"copyright\", \"credits\" or \"license\" for more information.\n>>> from click.types import Path\n>>> Path(allow_dash=True).convert('', '', '')\nTraceback (most recent call last):\n  File \"<stdin>\", line 1, in <module>\n  File \"/path/to/venv/lib/python3.12/site-packages/click/types.py\", line 865, in convert\n    is_dash = self.file_okay and self.allow_dash and rv in (b\"-\", \"-\")\n                                                     ^^^^^^^^^^^^^^^^^\nBytesWarning: Comparison between bytes and string\n```\n\nEnvironment:\n\n- Python version: 3.12.9\n- Click version: 8.1.8\n",
+      "issue_source": "issue #2877",
+      "source_files": [
+        "src/click/types.py"
+      ],
+      "test_files": [
+        "tests/test_types.py"
+      ],
+      "fail_to_pass": [
+        "tests/test_types.py::test_path_dash_no_byteswarning"
+      ],
+      "collected_total": 1595,
+      "baseline_failures": [],
+      "notes": "",
+      "names_source_path": true
+    },
+    {
+      "repo": "pallets/click",
+      "sha": "0551bf53588ae87f462d336f24f853a156fefe3a",
+      "title": "Fix `HelpFormatter.write_usage` producing spurious characters",
+      "issue": "# Empty output from `HelpFormatter.write_usage` for a program without arguments\n\nIf no `args` are passed to `HelpFormatter.write_usage`, the Usage line is not printed.\n\n### Reproduction\n\n```python\nimport click\n\nf = click.HelpFormatter()\nf.write_usage(\"program\")\nprint(f.getvalue())\n```\n<!--\nDescribe how to replicate the bug.\n\nInclude a minimal reproducible example that demonstrates the bug.\nInclude the full traceback if there was an exception.\n-->\n\n### Expected output\n```\nUsage: program\n```\n\n### Actual output\n(an empty line)\n\n### Environment\n\n- Python version: 3.12.3\n- Click version: 8.3.1\n\n### Additional information\n\nWe use `click` for a CLI program with interactive mode. We are about to use `click.HelpFormatter` to print help for internal commands, some of which do not accept any arguments (`exit`, for example).",
+      "issue_source": "issue #3360",
+      "source_files": [
+        "src/click/formatting.py"
+      ],
+      "test_files": [
+        "tests/test_formatting.py"
+      ],
+      "fail_to_pass": [
+        "tests/test_formatting.py::test_command_write_usage_no_args[empty-options-metavar-no-params]",
+        "tests/test_formatting.py::test_command_write_usage_no_args[none-options-metavar-no-params]",
+        "tests/test_formatting.py::test_help_formatter_write_usage[empty-args-custom-prefix]",
+        "tests/test_formatting.py::test_help_formatter_write_usage[empty-args-default-prefix]",
+        "tests/test_formatting.py::test_help_formatter_write_usage[empty-args-indented]",
+        "tests/test_formatting.py::test_help_formatter_write_usage[empty-args-long-prog]",
+        "tests/test_formatting.py::test_help_formatter_write_usage_without_args_styled_prefix"
+      ],
+      "collected_total": 1561,
+      "baseline_failures": [
+        "tests/test_options.py::test_flag_group_competition_duplicate_option_name"
+      ],
+      "notes": "",
+      "names_source_path": false
+    },
+    {
+      "repo": "pallets/click",
+      "sha": "684b3f5b5150761ec1c930bef300eb6169f483d8",
+      "title": "Add help parameter to arguments",
+      "issue": "# Add `help` to argument parameter\n\nWe are now open to a PR for adding a help kwarg to arguments in the same way that there is for options and adjusting the help pages to account for this. \n\n[Help Pages](https://click.palletsprojects.com/en/stable/documentation/#help-pages)\n\n\n```\n@click.command()\n@click.argument('name', help='The name to print')\n@click.option('--count', default=1, help='number of greetings')\ndef hello(name: str, count: int):\n    \"\"\"This script prints hello and a name one or more times.\"\"\"\n    for x in range(count):\n        if name:\n            click.echo(f\"Hello {name}!\")\n        else:\n            click.echo(\"Hello!\")\n```",
+      "issue_source": "issue #2983",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_arguments.py",
+        "tests/test_info_dict.py"
+      ],
+      "fail_to_pass": [
+        "tests/test_arguments.py::test_argument_help",
+        "tests/test_arguments.py::test_argument_help_optional_metavar",
+        "tests/test_arguments.py::test_deprecated_empty_help_no_leading_space[-True-(DEPRECATED)]",
+        "tests/test_arguments.py::test_deprecated_empty_help_no_leading_space[-USE B INSTEAD-(DEPRECATED: USE B INSTEAD)]",
+        "tests/test_arguments.py::test_deprecated_empty_help_no_leading_space[None-True-(DEPRECATED)]",
+        "tests/test_arguments.py::test_deprecated_empty_help_no_leading_space[None-USE B INSTEAD-(DEPRECATED: USE B INSTEAD)]",
+        "tests/test_arguments.py::test_deprecated_usage_help_record[True-(DEPRECATED)]",
+        "tests/test_arguments.py::test_deprecated_usage_help_record[use g instead-(DEPRECATED: use g instead)]",
+        "tests/test_arguments.py::test_deprecated_usage_help_record_without_help",
+        "tests/test_info_dict.py::test_argument_to_info_dict_help[None]",
+        "tests/test_info_dict.py::test_argument_to_info_dict_help[empty]",
+        "tests/test_info_dict.py::test_argument_to_info_dict_help[multi-line]",
+        "tests/test_info_dict.py::test_argument_to_info_dict_help[single-line]",
+        "tests/test_info_dict.py::test_argument_to_info_dict_nargs",
+        "tests/test_info_dict.py::test_command[Nested Group]",
+        "tests/test_info_dict.py::test_command_to_info_dict_multiple_arguments",
+        "tests/test_info_dict.py::test_parameter[Argument]"
+      ],
+      "collected_total": 1605,
+      "baseline_failures": [
+        "tests/test_options.py::test_flag_group_competition_duplicate_option_name"
+      ],
+      "notes": "",
+      "names_source_path": false
+    },
+    {
+      "repo": "pallets/click",
+      "sha": "665736bc85a19a7a2357c071394b4a545617faa3",
+      "title": "Mark commands as optional in the synopsis",
+      "issue": "# With `invoke_without_command` set, commands are not marked as optional\n\nHaving\n\n```python\n@click.group(invoke_without_command=True)\ndef main():\n    if ctx.invoked_subcommand is not None:\n        return\n    # do something by default\n```\n\nI expect `--help` to output:\n\n```\nUsage: app.py [OPTIONS] [COMMAND] [ARGS]...\n```\n\nBut it outputs:\n\n```\nUsage: app.py [OPTIONS] COMMAND [ARGS]...\n```\n\nEnvironment:\n\n- Python version: 3.11.8\n- Click version: 8.2.0\n",
+      "issue_source": "issue #3059",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_arguments.py",
+        "tests/test_commands.py"
+      ],
+      "fail_to_pass": [
+        "tests/test_commands.py::test_subcommand_metavar_marks_optional[False-True-[COMMAND] [ARGS]...]",
+        "tests/test_commands.py::test_subcommand_metavar_marks_optional[True-True-[COMMAND1] [ARGS]... [COMMAND2 [ARGS]...]...]"
+      ],
+      "collected_total": 1589,
+      "baseline_failures": [
+        "tests/test_options.py::test_flag_group_competition_duplicate_option_name"
+      ],
+      "notes": "",
+      "names_source_path": false
+    },
+    {
+      "repo": "pallets/click",
+      "sha": "7d05a59b9d46a415d85937630d1d812cf477f60a",
+      "title": "Fix get_parameter_source() during type conversion and eager callbacks",
+      "issue": "# Fix get_parameter_source() during type conversion and eager callbacks\n\nFix get_parameter_source() during type conversion and eager callbacks\n\nRecord parameter source on the context immediately after consume_value(),\nbefore process_value() runs. In 8.4.0, set_parameter_source() was deferred\nuntil after type conversion and flag-group arbitration (0f71fe7, #3403), so\nget_parameter_source() returned None inside ParamType.convert() and eager\ncallbacks (#3458).\n\nWhen several options share one parameter name, the losing option still sets a\nprovisional source before process_value(); restore the previous source if\narbitration rejects it so the winner's origin is not replaced unintentionally.",
+      "issue_source": "commit_message (may leak fix)",
+      "source_files": [
+        "src/click/core.py"
+      ],
+      "test_files": [
+        "tests/test_defaults.py",
+        "tests/test_options.py"
+      ],
+      "fail_to_pass": [
+        "tests/test_defaults.py::test_flask_debug_env_not_stomped_by_default_flag",
+        "tests/test_defaults.py::test_parameter_source_during_eager_callback",
+        "tests/test_defaults.py::test_parameter_source_during_paramtype_convert"
+      ],
+      "collected_total": 1568,
+      "baseline_failures": [
+        "tests/test_options.py::test_flag_group_competition_duplicate_option_name"
+      ],
+      "notes": "",
+      "names_source_path": false
+    }
+  ]
+}
