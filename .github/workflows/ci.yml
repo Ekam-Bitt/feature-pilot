@@ -32,8 +32,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned exactly: setup-uv publishes no moving `v9` tag, only `v9.0.0`.
       - name: Install uv
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
