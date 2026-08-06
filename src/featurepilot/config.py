@@ -10,7 +10,6 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -98,9 +97,21 @@ class Settings(BaseSettings):
     # --- budget guards ----------------------------------------------------
     # Load-bearing, not polish: an agent that loops is an agent that bills.
     max_attempts: int = 3
-    max_tokens_per_run: int = 400_000
+    # Cumulative input tokens are a poor ceiling for a tool loop: the same
+    # retrieval context is re-sent on every call, so one piece of information is
+    # counted once per iteration. Measured on click — 19 calls x ~21k = 400k
+    # cumulative, of which the vast majority was an identical cached prefix
+    # costing a tenth of list price. Cost is the honest instrument; this stays
+    # only as a runaway backstop, set high enough not to fire on real work.
+    max_tokens_per_run: int = 2_000_000
     max_usd_per_run: float = 2.00
     max_tokens_per_call: int = 16_000
+    # Per-request deadline and retries. The client shipped with neither, and a
+    # run against click hung for 817 seconds before LiteLLM's own default fired,
+    # spending the wall clock and producing nothing. Requests carrying 70k
+    # characters of context are slow enough that an explicit deadline matters.
+    request_timeout_s: float = 180.0
+    request_max_retries: int = 2
 
     # --- datastores -------------------------------------------------------
     postgres_dsn: str = "postgresql://featurepilot:featurepilot@localhost:5433/featurepilot"
@@ -122,8 +133,10 @@ class Settings(BaseSettings):
     sandbox_workdir: str = "/work"
 
     # --- retrieval --------------------------------------------------------
-    # 1A ships "filesystem". 1B flips this value; no node changes.
-    retriever: Literal["filesystem", "embedding", "hybrid"] = "filesystem"
+    # Names come from `retrieval/strategies.py`, which is also what the offline
+    # benchmark constructs — so a measured improvement and the running agent
+    # cannot disagree. 1B adds `embedding`/`hybrid` there; no node changes.
+    retriever: str = "clean-query+content-rank"
     retrieval_top_k: int = 8
     retrieval_fusion_pool: int = 40
 

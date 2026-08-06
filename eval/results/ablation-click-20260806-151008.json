@@ -1,0 +1,29 @@
+{
+  "suite": "click",
+  "cases": [
+    "93ba0075f"
+  ],
+  "trials": [
+    {
+      "rung": "full",
+      "case": "93ba0075f",
+      "solved": false,
+      "clean": false,
+      "attempts": 0,
+      "resolved": 0,
+      "expected": 2,
+      "regressions": 0,
+      "tests_removed": 0,
+      "cost_usd": 0.0,
+      "wall_seconds": 817.0,
+      "model_calls": 0,
+      "tool_calls": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "hit_budget": false,
+      "per_role_cost": {},
+      "tool_calls_by_node": {},
+      "error": "Timeout: litellm.Timeout: AnthropicException - litellm.Timeout: Connection timed out. Timeout passed=600.0, time taken=600.068 seconds"
+    }
+  ]
+}

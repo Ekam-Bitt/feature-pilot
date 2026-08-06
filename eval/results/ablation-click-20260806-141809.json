@@ -1,0 +1,31 @@
+{
+  "suite": "click",
+  "cases": [
+    "93ba0075f"
+  ],
+  "trials": [
+    {
+      "rung": "full",
+      "case": "93ba0075f",
+      "solved": false,
+      "clean": true,
+      "attempts": 0,
+      "resolved": 0,
+      "expected": 2,
+      "regressions": 0,
+      "tests_removed": 0,
+      "cost_usd": 0.8586,
+      "wall_seconds": 72.5,
+      "model_calls": 12,
+      "tool_calls": 18,
+      "per_role_cost": {
+        "planner": 0.0351,
+        "coder": 0.8236
+      },
+      "tool_calls_by_node": {
+        "retrieve": 18
+      },
+      "error": "run 845bcc4138a8 hit the token ceiling: 417012 >= 400000"
+    }
+  ]
+}

@@ -30,6 +30,7 @@ from featurepilot.graph.router import (
     REVIEW,
     SUMMARIZE,
     TEST,
+    Stages,
     next_phase_after_tests,
     route,
 )
@@ -218,3 +219,79 @@ class TestPhaseSurvivesStorage:
         st["phase"] = "NOT_A_PHASE"  # type: ignore[typeddict-item]
         with pytest.raises(AssertionError, match="unknown run phase"):
             route(st)
+
+
+class TestStages:
+    """Ablation gating. The lifecycle table permits stage-skipping transitions so
+    these configurations are expressible; these tests prove the *router* only
+    takes them when asked, so the full pipeline keeps its guarantees."""
+
+    def test_full_pipeline_never_skips_a_stage(self) -> None:
+        """The invariant the loosened transition table gives up, restored here.
+        Under FULL, no shortcut is reachable from any phase."""
+        assert route(state_at(RunPhase.CREATED)) == RETRIEVE
+        assert route(state_at(RunPhase.PLANNING, context=CONTEXT)) == PLAN
+        assert route(state_at(RunPhase.CODING)) == CODE
+        assert route(state_at(RunPhase.TESTING)) == TEST
+        assert route(state_at(RunPhase.TESTING, tests=GREEN)) == REVIEW
+        assert route(state_at(RunPhase.TESTING, tests=RED)) == DEBUG
+
+    def test_retrieval_off_goes_straight_to_planning(self) -> None:
+        stages = Stages(retrieve=False)
+        assert route(state_at(RunPhase.CREATED), stages=stages) == PLAN
+
+    def test_retrieval_and_planning_off_go_straight_to_code(self) -> None:
+        """The leanest rung: the coder works from the issue alone."""
+        stages = Stages(retrieve=False, plan=False)
+        assert route(state_at(RunPhase.CREATED), stages=stages) == CODE
+
+    def test_planning_off_does_not_wait_for_context(self) -> None:
+        stages = Stages(retrieve=False, plan=False)
+        assert route(state_at(RunPhase.CODING), stages=stages) == CODE
+
+    def test_testing_off_skips_to_review(self) -> None:
+        stages = Stages(test=False)
+        assert route(state_at(RunPhase.TESTING), stages=stages) == REVIEW
+
+    def test_testing_and_review_off_go_straight_to_the_summary(self) -> None:
+        stages = Stages(test=False, review=False)
+        assert route(state_at(RunPhase.TESTING), stages=stages) == SUMMARIZE
+
+    def test_debug_off_ends_on_a_red_suite(self) -> None:
+        """Testing without repair reports the failure but cannot act on it, so the
+        run stops rather than reviewing a patch already known to be broken."""
+        stages = Stages(debug=False)
+        assert route(state_at(RunPhase.TESTING, tests=RED), stages=stages) == FINISH
+
+    def test_debug_off_still_reviews_a_green_suite(self) -> None:
+        stages = Stages(debug=False)
+        assert route(state_at(RunPhase.TESTING, tests=GREEN), stages=stages) == REVIEW
+
+    def test_review_off_summarises_a_green_suite(self) -> None:
+        stages = Stages(review=False)
+        assert route(state_at(RunPhase.TESTING, tests=GREEN), stages=stages) == SUMMARIZE
+
+    def test_review_off_skips_the_review_phase(self) -> None:
+        stages = Stages(review=False)
+        assert route(state_at(RunPhase.REVIEW), stages=stages) == SUMMARIZE
+
+    def test_repair_loop_survives_review_being_off(self) -> None:
+        """Ablating review must not disable repair — they are independent."""
+        stages = Stages(review=False)
+        diagnosis = DebuggerOutput(failure_category="assertion", root_cause="x", retry=True)
+        st = state_at(RunPhase.DEBUGGING, diagnosis=diagnosis, attempt=1)
+        assert route(st, stages=stages) == CODE
+
+    def test_labels_are_distinct_and_readable(self) -> None:
+        """The label keys a results table, so collisions would merge two rows."""
+        configs = [
+            Stages(retrieve=False, plan=False, test=False, debug=False, review=False),
+            Stages(plan=False, test=False, debug=False, review=False),
+            Stages(test=False, debug=False, review=False),
+            Stages(debug=False, review=False),
+            Stages(review=False),
+            Stages(),
+        ]
+        labels = [c.label for c in configs]
+        assert len(set(labels)) == len(labels), labels
+        assert labels[0] == "code-only"

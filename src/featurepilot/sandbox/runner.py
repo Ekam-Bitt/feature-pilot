@@ -357,8 +357,31 @@ class Sandbox:
     # and any quoting scheme would eventually corrupt one of them.
 
     async def read_text(self, path: str) -> str:
-        target = self.resolve(path)
-        return await asyncio.to_thread(self._read_sync, target)
+        """Entire file contents.
+
+        The common case, so it returns a plain string. Ranged reads have their own
+        method rather than making every caller unpack a tuple it does not need.
+        """
+        return await asyncio.to_thread(self._read_sync, self.resolve(path))
+
+    async def read_range(
+        self, path: str, *, offset: int = 0, limit: int = 0
+    ) -> tuple[str, int, int]:
+        """Read a 1-indexed line range, returning (text, first_line, total_lines).
+
+        Exists because whole-file reads do not survive a real repository: click's
+        core.py is ~35k tokens, and a coder loop accumulating a few of those blew
+        a 400k-token budget. The caller reports which slice it got, so the model
+        knows what it has and can ask for more.
+        """
+        body = await self.read_text(path)
+        lines = body.splitlines()
+        total = len(lines)
+        if not offset and not limit:
+            return body, 1, total
+        start = max(1, offset or 1)
+        end = min(total, start + limit - 1) if limit else total
+        return "\n".join(lines[start - 1 : end]), start, total
 
     def _read_sync(self, target: str) -> str:
         import docker
@@ -439,7 +462,11 @@ class Sandbox:
     async def grep(self, pattern: str, path: str = ".") -> ExecResult:
         target = "." if path == "." else self.resolve(path)
         return await self._exec_argv(
-            ["grep", "-rn", "--binary-files=without-match", pattern, target],
+            # -E: extended regex. Without it `(def|class)` is a literal string,
+            # so any alternation silently matches nothing — and the offline
+            # benchmark (Python `re`, which is ERE-like) would disagree with
+            # production about what a pattern means.
+            ["grep", "-rnE", "--binary-files=without-match", pattern, target],
             display=f"grep {pattern} {path}",
             timeout=120,
         )

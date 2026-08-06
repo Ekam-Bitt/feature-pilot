@@ -44,22 +44,30 @@ async def _box() -> Sandbox:
     return _sandbox
 
 
-#: Truncation ceiling for a single read. Beyond this the model is better served
-#: by grep than by a wall of text that crowds out its own reasoning.
-MAX_READ_CHARS = 60_000
+#: Truncation ceiling for a single read.
+#:
+#: Lowered from 60k after a real repository: one read of click's core.py is
+#: ~35k tokens, and a coder loop accumulating a handful of those exhausted a
+#: 400k-token run budget before finishing. A truncated read now says so and
+#: points at the range arguments, so the model can narrow rather than guess.
+MAX_READ_CHARS = 12_000
 
 
 @server.tool(
     description=(
         "Read a file from the repository. Returns the contents with line numbers, "
-        "so you can quote exact text back to edit_file."
+        "so you can quote exact text back to edit_file.\n\n"
+        "Large files must be read in ranges: pass offset (1-indexed first line) "
+        "and limit (how many lines). Use grep first to find the line you want, "
+        "then read a window around it. Reading a whole large file wastes budget "
+        "you will need for the edit."
     )
 )
-async def read_file(path: str) -> str:
-    """Read `path` relative to the repository root."""
+async def read_file(path: str, offset: int = 0, limit: int = 0) -> str:
+    """Read `path`, optionally the `limit` lines starting at `offset`."""
     try:
         box = await _box()
-        body = await box.read_text(path)
+        body, first_line, total = await box.read_range(path, offset=offset, limit=limit)
     except FileNotFoundError:
         return as_error(f"no such file: {path}. Use glob to find the correct path.")
     except Exception as exc:  # noqa: BLE001 - surface to the model, don't crash the server
@@ -68,12 +76,16 @@ async def read_file(path: str) -> str:
     truncated = len(body) > MAX_READ_CHARS
     if truncated:
         body = body[:MAX_READ_CHARS]
-    numbered = "\n".join(f"{i:>5}  {line}" for i, line in enumerate(body.splitlines(), start=1))
+    numbered = "\n".join(
+        f"{i:>5}  {line}" for i, line in enumerate(body.splitlines(), start=first_line)
+    )
+    header = f"{path} (lines {first_line}-{first_line + body.count(chr(10))} of {total})"
     if truncated:
         numbered += (
-            f"\n\n[truncated at {MAX_READ_CHARS} characters — use grep to locate the part you need]"
+            f"\n\n[truncated at {MAX_READ_CHARS} characters. Read a narrower range: "
+            f"read_file(path={path!r}, offset=<line>, limit=200)]"
         )
-    return numbered or f"{path} is empty."
+    return f"{header}\n{numbered}" if numbered else f"{path} is empty."
 
 
 @server.tool(

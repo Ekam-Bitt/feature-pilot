@@ -1,0 +1,36 @@
+{
+  "suite": "click",
+  "cases": [
+    "93ba0075f"
+  ],
+  "trials": [
+    {
+      "rung": "full",
+      "case": "93ba0075f",
+      "solved": false,
+      "clean": true,
+      "attempts": 1,
+      "resolved": 0,
+      "expected": 2,
+      "regressions": 0,
+      "tests_removed": 0,
+      "cost_usd": 0.8734,
+      "wall_seconds": 144.7,
+      "model_calls": 19,
+      "tool_calls": 30,
+      "input_tokens": 398651,
+      "output_tokens": 7613,
+      "hit_budget": true,
+      "per_role_cost": {
+        "planner": 0.0402,
+        "coder": 0.8085,
+        "debugger": 0.0247
+      },
+      "tool_calls_by_node": {
+        "retrieve": 18,
+        "code": 12
+      },
+      "error": "run 8e72c946a582 hit the token ceiling: 406264 >= 400000"
+    }
+  ]
+}

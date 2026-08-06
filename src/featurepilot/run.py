@@ -30,13 +30,14 @@ from featurepilot.config import Role, Settings, get_settings
 from featurepilot.contracts import HumanDecision
 from featurepilot.graph.build import build_graph
 from featurepilot.graph.context import RunContext
+from featurepilot.graph.router import FULL, Stages
 from featurepilot.graph.state import AgentState, new_state
 from featurepilot.lifecycle import RunPhase
 from featurepilot.mcp.client import MCPToolLoader
 from featurepilot.metrics.events import CompositeSink, EventSink, InMemorySink
 from featurepilot.metrics.recorder import MetricsRecorder
 from featurepilot.retrieval.base import Retriever
-from featurepilot.retrieval.filesystem import FilesystemRetriever
+from featurepilot.retrieval.strategies import build_retriever
 from featurepilot.sandbox.runner import Sandbox
 from featurepilot.tools.registry import ToolRegistry
 
@@ -50,14 +51,11 @@ ARTIFACT_ROOT = Path(".fp")
 def _make_retriever(kind: str, registry: ToolRegistry, settings: Settings) -> Retriever:
     """Select the retrieval strategy by config.
 
-    This function is the entirety of the Phase 1A -> 1B switch. The graph is
-    retrieval-agnostic, so adding `embedding`/`hybrid` here changes no node.
+    Delegates to the shared factory so the agent and the offline benchmark cannot
+    drift apart — they did once, and the benchmark measured a ranker production
+    was not using.
     """
-    if kind == "filesystem":
-        return FilesystemRetriever(registry)
-    raise NotImplementedError(
-        f"retriever {kind!r} arrives in Phase 1B; set FP_RETRIEVER=filesystem for now"
-    )
+    return build_retriever(kind, registry)
 
 
 @dataclass(slots=True)
@@ -112,6 +110,7 @@ async def open_run(
     run_id: str | None = None,
     thread_id: str | None = None,
     auto_approve: bool = False,
+    stages: Stages = FULL,
     extra_sinks: tuple[EventSink, ...] = (),
     install_dependencies: bool = True,
     resume: bool = False,
@@ -199,6 +198,7 @@ async def open_run(
             tool_loop=_tool_loop_call(settings, recorder),
             sandbox=sandbox,
             auto_approve=auto_approve,
+            stages=stages,
         )
 
         checkpointer = await stack.enter_async_context(_checkpointer(settings))

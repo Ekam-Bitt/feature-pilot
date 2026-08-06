@@ -13,10 +13,38 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Callable
 
 from featurepilot.contracts import RetrievedChunk, RetrieverOutput
+from featurepilot.retrieval import query as query_module
+from featurepilot.retrieval import ranker as ranker_module
 from featurepilot.tools.registry import ToolRegistry
 from featurepilot.tracing import traced
+
+#: Turns issue text into ordered search terms. Two implementations exist:
+#: `candidate_terms` (the original, kept as the benchmark's control) and
+#: `region_aware_terms`, which classifies console pastes and repro scripts
+#: before extracting.
+QueryBuilder = Callable[[str], list[str]]
+
+#: Finds where a symbol is *defined*, rather than where it is mentioned.
+#:
+#: A definition is the single strongest signal that a file is where a fix goes,
+#: and it is obtainable by search — no need to read candidates to find out.
+#: That matters twice over: reading every candidate cost 2.3x the bytes
+#: scanned, and a pre-filter over the *mention* count buried real definitions
+#: at rank 30 and 44 where nothing downstream could rescue them.
+#: Written to mean the same thing in POSIX ERE and in Python `re`: `[ \t]`
+#: rather than `[[:space:]]`, which Python rejects outright. The offline
+#: benchmark evaluates patterns with `re` while production shells out to
+#: `grep -E`, so a dialect difference makes the benchmark quietly unfaithful.
+DEFINITION_PATTERN = r"^[ \t]*(def|class|async def)[ \t]+{name}"
+
+#: Orders candidates given path -> (content, matched terms).
+RankFn = Callable[
+    [dict[str, tuple[str, frozenset[str]]]],
+    list[tuple[str, float, ranker_module.Features]],
+]
 
 #: Identifier-shaped tokens: snake_case, CamelCase, dotted paths, SKUs.
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]{2,}(?:[./][A-Za-z0-9_]+)*")
@@ -74,14 +102,35 @@ def candidate_terms(text: str, limit: int = 12) -> list[str]:
     return [term for term, _ in scored.most_common(limit)]
 
 
+def region_aware_terms(text: str, limit: int = 12) -> list[str]:
+    """Region-classifying query generation. See `retrieval/query.py`."""
+    return list(query_module.build(text, limit=limit).terms)
+
+
 class FilesystemRetriever:
     """Search-based retrieval over the sandbox worktree."""
 
     name = "filesystem"
 
-    def __init__(self, registry: ToolRegistry, *, max_files: int = 6) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        *,
+        max_files: int = 6,
+        query_builder: QueryBuilder = candidate_terms,
+        ranker: RankFn | None = None,
+    ) -> None:
         self._registry = registry
         self._max_files = max_files
+        # Injected so query generation and retrieval can be scored separately.
+        # Measurement showed the failure was in the query, not the search, and
+        # a benchmark cannot attribute that unless the two are swappable.
+        self._build_query = query_builder
+        # None keeps the original objective (count of distinct matching terms),
+        # which is the benchmark's control. A ranker replaces the objective
+        # without touching query generation or search, so the two stay
+        # separately attributable.
+        self._ranker = ranker
 
     async def prepare(self) -> None:
         """No index to build. Present because the protocol promises it, and
@@ -90,44 +139,91 @@ class FilesystemRetriever:
 
     @traced("filesystem_retrieve", run_type="retriever")
     async def retrieve(self, query: str, *, k: int = 8) -> RetrieverOutput:
-        terms = candidate_terms(query)
+        terms = self._build_query(query)
         if not terms:
             return RetrieverOutput(strategy=self.name, confidence=0.0)
 
         # path -> the terms that matched in it. Counting distinct terms rather
         # than raw hits stops one repeated word from dominating the ranking.
         matches: dict[str, set[str]] = {}
+        # Files that *define* a queried symbol. Promoted ahead of the mention-count
+        # pre-filter: a definition site is where a fix goes, and letting the weaker
+        # signal decide who reaches the ranker is what buried the answer before.
+        definers: set[str] = set()
+        # path -> the line numbers that matched. Kept because returning whole
+        # files does not survive a real repository: click's core.py is ~35k
+        # tokens, and six of those blew a 400k-token run budget on one case.
+        hit_lines: dict[str, set[int]] = {}
         for term in terms:
             result = await self._registry.call("grep", pattern=re.escape(term))
             if not result.ok:
                 continue
             for line in result.content.splitlines():
-                path = _path_of(line)
+                path, lineno = _locate(line)
                 if path and _is_searchable(path):
                     matches.setdefault(path, set()).add(term)
+                    if lineno:
+                        hit_lines.setdefault(path, set()).add(lineno)
+
+            # One extra grep per term buys the definition signal directly. Only
+            # worth it when a ranker exists to use it.
+            if self._ranker is None:
+                continue
+            name = term.rsplit(".", maxsplit=1)[-1]
+            if not name.isidentifier():
+                continue
+            defined = await self._registry.call(
+                "grep", pattern=DEFINITION_PATTERN.format(name=re.escape(name))
+            )
+            if not defined.ok:
+                continue
+            for line in defined.content.splitlines():
+                path, lineno = _locate(line)
+                if path and _is_searchable(path):
+                    definers.add(path)
+                    matches.setdefault(path, set()).add(term)
+                    if lineno:
+                        hit_lines.setdefault(path, set()).add(lineno)
 
         if not matches:
             return RetrieverOutput(strategy=self.name, confidence=0.0)
 
-        ranked = sorted(matches.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-        chosen = ranked[: min(self._max_files, k)]
+        if self._ranker is None:
+            ranked = sorted(matches.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+            chosen = [(path, terms) for path, terms in ranked]
+        else:
+            # Reading candidates before ranking is the cost of a content-based
+            # objective: you cannot tell a definition from a call without
+            # looking. Bounded to the files that matched at all.
+            bodies: dict[str, tuple[str, frozenset[str]]] = {}
+            for path, hit_terms in sorted(matches.items(), key=lambda kv: (-len(kv[1]), kv[0]))[
+                : self._max_files * 3
+            ]:
+                read = await self._registry.call("read_file", path=path)
+                if read.ok:
+                    bodies[path] = (_strip_gutter(read.content), frozenset(hit_terms))
+            chosen = [(path, set(bodies[path][1])) for path, _, _ in self._ranker(bodies)]
+        chosen = chosen[: min(self._max_files, k)]
 
         chunks: list[RetrievedChunk] = []
         for path, hit_terms in chosen:
             read = await self._registry.call("read_file", path=path)
             if not read.ok:
                 continue
-            body = _strip_gutter(read.content)
-            chunks.append(
-                RetrievedChunk(
-                    path=path,
-                    start_line=1,
-                    end_line=body.count("\n") + 1,
-                    score=len(hit_terms) / len(terms),
-                    why=f"matches {', '.join(sorted(hit_terms)[:4])}",
-                    content=body,
+            lines = _strip_gutter(read.content).splitlines()
+            why = f"matches {', '.join(sorted(hit_terms)[:4])}"
+            score = len(hit_terms) / len(terms)
+            for start, end in _windows(sorted(hit_lines.get(path, set())), len(lines)):
+                chunks.append(
+                    RetrievedChunk(
+                        path=path,
+                        start_line=start,
+                        end_line=end,
+                        score=score,
+                        why=why,
+                        content="\n".join(lines[start - 1 : end]),
+                    )
                 )
-            )
 
         # Confidence is the share of search terms the best file accounted for.
         # Honest rather than flattering: a single weak match reports low.
@@ -140,11 +236,49 @@ class FilesystemRetriever:
         )
 
 
-#: grep output is `path:line:text`; a Windows-style drive letter is not a concern
-#: inside a Linux container, so the first colon is the separator.
-def _path_of(line: str) -> str | None:
-    head, _, _ = line.partition(":")
-    return head.strip() or None
+#: Lines of context either side of a match. Wide enough that the enclosing
+#: function is usually visible — the coder needs the exact surrounding text to
+#: build an `edit_file` call that matches byte-for-byte — and still ~100x smaller
+#: than handing over click's core.py.
+WINDOW = 40
+
+#: Two matches closer than this share one window rather than producing two
+#: overlapping ones.
+MERGE_GAP = 20
+
+
+def _locate(line: str) -> tuple[str | None, int | None]:
+    """Split a grep hit into (path, line number).
+
+    grep emits `path:line:text`. A Windows drive letter is not a concern inside a
+    Linux container, so the first two colons are the separators.
+    """
+    head, _, rest = line.partition(":")
+    path = head.strip() or None
+    number, _, _ = rest.partition(":")
+    try:
+        return path, int(number)
+    except ValueError:
+        return path, None
+
+
+def _windows(hits: list[int], total: int) -> list[tuple[int, int]]:
+    """Merge nearby hit lines into 1-indexed inclusive line ranges.
+
+    With no hit lines (grep matched but the numbers were unparseable) the whole
+    file is returned — losing the location is a reason to be generous, not to
+    return nothing.
+    """
+    if not hits:
+        return [(1, total)] if total else []
+    spans: list[tuple[int, int]] = []
+    for hit in hits:
+        start, end = max(1, hit - WINDOW), min(total, hit + WINDOW)
+        if spans and start - spans[-1][1] <= MERGE_GAP:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], end))
+        else:
+            spans.append((start, end))
+    return spans
 
 
 _SKIP_SUFFIXES = (".pyc", ".so", ".lock", ".png", ".jpg", ".pdf")

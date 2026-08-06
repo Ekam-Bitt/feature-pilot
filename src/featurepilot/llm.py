@@ -33,6 +33,61 @@ log = logging.getLogger(__name__)
 #: the schema spelled out usually lands.
 MAX_STRUCTURED_ATTEMPTS = 3
 
+#: Character budget for tool results carried in a tool-loop transcript.
+#:
+#: The loop re-sends the whole history each turn, so the transcript is paid for
+#: once per remaining iteration — it is the largest per-call component, not a
+#: one-off. Measured on click: a 60k budget put ~21k tokens on every one of 19
+#: calls. Older results are elided once the budget is passed; the model has
+#: already acted on them, and the recent ones are what it is reasoning about.
+#:
+#: Do not shrink this expecting a saving. Measured on click: cutting it to 18k
+#: took per-call size down but pushed call count from 19 to 39 and total tokens
+#: from 406k to 680k — with less state in hand the agent re-explores. Per-call
+#: context and iteration count trade against each other.
+TOOL_TRANSCRIPT_BUDGET = 50_000
+
+#: Never elide the most recent results: they are the ones being reasoned about.
+KEEP_RECENT_TOOL_RESULTS = 4
+
+
+def _prune_tool_results(history: list[BaseMessage]) -> list[BaseMessage]:
+    """Replace the content of older tool results once the transcript grows too big.
+
+    Structure is preserved rather than dropping messages: a ToolMessage whose
+    matching tool_call disappears is rejected by the provider, so the message
+    stays and only its body is replaced by a stub.
+    """
+    from langchain_core.messages import ToolMessage
+
+    indices = [i for i, m in enumerate(history) if isinstance(m, ToolMessage)]
+    if len(indices) <= KEEP_RECENT_TOOL_RESULTS:
+        return history
+
+    total = sum(len(str(history[i].content)) for i in indices)
+    if total <= TOOL_TRANSCRIPT_BUDGET:
+        return history
+
+    prunable = indices[:-KEEP_RECENT_TOOL_RESULTS]
+    pruned = list(history)
+    for i in prunable:
+        original = str(pruned[i].content)
+        if len(original) <= 200:
+            continue
+        message = pruned[i]
+        pruned[i] = ToolMessage(
+            content=(
+                f"[earlier result elided to stay within budget — {len(original)} "
+                "characters. Re-read a narrow range if you still need it.]"
+            ),
+            tool_call_id=getattr(message, "tool_call_id", ""),
+            status=getattr(message, "status", "success"),
+        )
+        total -= len(original)
+        if total <= TOOL_TRANSCRIPT_BUDGET:
+            break
+    return pruned
+
 
 def _repair_prompt(output_model: type[BaseModel], error: Exception | None) -> str:
     """Tell the model exactly what shape was expected and what it got wrong."""
@@ -108,6 +163,11 @@ def chat_model(
     return ChatLiteLLM(
         model=model,
         max_tokens=max_tokens or settings.max_tokens_per_call,
+        # An explicit deadline and retry count. Without them a large request can
+        # hang until some library default fires — observed on click: 817 seconds
+        # of wall clock, zero completed calls, nothing to show for it.
+        request_timeout=settings.request_timeout_s,
+        max_retries=settings.request_max_retries,
         # Sampling params are rejected on current Anthropic models; steer with
         # prompting instead. Left unset deliberately.
     )
@@ -211,14 +271,16 @@ async def run_tool_loop(
         if recorder is not None:
             recorder.guard()
 
-        reply = await bound.ainvoke(history)
+        reply = await bound.ainvoke(_prune_tool_results(history))
         if recorder is not None:
             await _record_usage(recorder, role, settings, escalate, reply)
         history.append(reply)
 
         calls = getattr(reply, "tool_calls", None)
         if not calls:
-            return history
+            # Pruned on the way out too: the caller appends a summary request
+            # and re-sends this, so an unpruned transcript would be paid for twice.
+            return _prune_tool_results(history)
 
         results = await execute_tool_calls(registry, reply)
         history.extend(results)
@@ -234,7 +296,7 @@ async def run_tool_loop(
                 )
             )
         )
-    return history
+    return _prune_tool_results(history)
 
 
 async def _record_usage(

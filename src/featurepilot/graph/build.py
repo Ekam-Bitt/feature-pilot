@@ -66,11 +66,16 @@ def _wrap(node: AgentNode[Any], ctx: RunContext) -> NodeFn:
                 return {"phase": RunPhase.FAILED, "error": str(exc)}
             update = node.apply(state, output)
 
+        # Reviewer verdicts feed an acceptance rate. Read from the output here
+        # rather than inside the node so the node stays free of instrumentation.
+        if (review := update.get("review")) is not None:
+            ctx.recorder.record_review(getattr(review, "verdict", "") == "approve")
+
         # The registry logged every tool call; drain it once per node rather than
         # instrumenting each node individually.
         if ctx.registry.calls:
             drained, ctx.registry.calls[:] = list(ctx.registry.calls), []
-            await ctx.recorder.record_tool_calls(drained)
+            await ctx.recorder.record_tool_calls(drained, node=node.name)
 
         await _emit_artifacts(ctx, update)
 
@@ -132,7 +137,7 @@ def build_graph(ctx: RunContext) -> StateGraph[AgentState, None, AgentState, Age
         graph.add_node(name, _wrap(node, ctx))  # type: ignore[call-overload]
 
     def _route(state: AgentState) -> str:
-        destination = route(state, max_attempts=ctx.settings.max_attempts)
+        destination = route(state, max_attempts=ctx.settings.max_attempts, stages=ctx.stages)
         return END if destination == FINISH else destination
 
     graph.add_conditional_edges(START, _route, [*nodes, END])

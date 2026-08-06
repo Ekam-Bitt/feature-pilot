@@ -35,16 +35,20 @@ class RunPhase(StrEnum):
 #: Legal forward transitions. FAILED is reachable from anywhere and is handled
 #: separately rather than being listed on every row.
 _TRANSITIONS: dict[RunPhase, frozenset[RunPhase]] = {
-    RunPhase.CREATED: frozenset({RunPhase.INDEXING, RunPhase.PLANNING}),
+    # CODING is reachable directly when both retrieval and planning are ablated
+    # away; see graph/router.Stages.
+    RunPhase.CREATED: frozenset({RunPhase.INDEXING, RunPhase.PLANNING, RunPhase.CODING}),
     RunPhase.INDEXING: frozenset({RunPhase.PLANNING}),
     # Planning may skip approval when the plan raises no questions and the
     # caller opted out of the gate (--yes).
     RunPhase.PLANNING: frozenset({RunPhase.WAITING_APPROVAL, RunPhase.CODING}),
     # Re-planning is legal: a human can reject a plan and send it back.
     RunPhase.WAITING_APPROVAL: frozenset({RunPhase.CODING, RunPhase.PLANNING}),
-    RunPhase.CODING: frozenset({RunPhase.TESTING}),
+    # REVIEW is reachable directly when the tester is ablated away.
+    RunPhase.CODING: frozenset({RunPhase.TESTING, RunPhase.REVIEW}),
     # Green -> REVIEW, red -> DEBUGGING.
-    RunPhase.TESTING: frozenset({RunPhase.REVIEW, RunPhase.DEBUGGING}),
+    # DONE is reachable when review is ablated away and the tests passed.
+    RunPhase.TESTING: frozenset({RunPhase.REVIEW, RunPhase.DEBUGGING, RunPhase.DONE}),
     # The repair loop. DEBUGGING -> CODING is the edge that makes this an
     # agent rather than a one-shot patcher.
     RunPhase.DEBUGGING: frozenset({RunPhase.CODING}),

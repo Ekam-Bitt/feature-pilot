@@ -1,0 +1,72 @@
+{
+  "Textualize/rich": [
+    {
+      "repo": "Textualize/rich",
+      "sha": "95fe8ff59249d9ac0534a82af7c746826a5999f4",
+      "title": "Fix raw markup printed on prompt errors sometimes",
+      "issue": "# [BUG] PromptBase.on_validate_error should explicitly enable markup\n\n- [x] I've checked [docs](https://rich.readthedocs.io/en/latest/introduction.html) and [closed issues](https://github.com/Textualize/rich/issues?q=is%3Aissue+is%3Aclosed) for possible solutions.\n- [x] I can't find my issue in the [FAQ](https://github.com/Textualize/rich/blob/master/FAQ.md).\n\n**Describe the bug**\n\nI create a console with `Console(markup=False)` and then pass it to `Confirm.ask(..., console=console)`.  If the user doesn't pick a valid choice, they get an error that says `[prompt.invalid]Please enter Y or N`.\n\nI think `PromptBase.on_validate_error()` should explicitly pass `markup=true` to `self.console.print(error)`.\n\n**Platform**\n\nEvery platform, it's a logic bug.  (I'm on Ubuntu 25.10 with gnome-terminal, which doesn't matter.)",
+      "issue_source": "issue #3881",
+      "source_files": [
+        "rich/prompt.py"
+      ],
+      "names_source_path": false
+    },
+    {
+      "repo": "Textualize/rich",
+      "sha": "30e5ed61a6064220fe2ff40f4713463488ee6d07",
+      "title": "fix(panel): fix title missing panel background",
+      "issue": "# [BUG]In the latest versions rich \"Title\" without color\n\nrich v 13.0.1  Title is painted over, see screenshot\r\nrich v13.9.4r Title unpainted, see screenshot\r\n\r\nOS GNU/Linux and OS Windows\r\n\r\n```python\r\nfrom rich.console import Console\r\nfrom rich.panel import Panel\r\nfrom rich.style import Style\r\nimport os\r\n\r\nconsole = Console()\r\nconsole.print(Panel(str(os.environ), title='[bold white]Title[/bold white]', style=Style(color=\"white\", bgcolor=\"blue\")))\r\n```\r\n![rich](https://github.com/user-attachments/assets/9eb0fd2e-13f9-4e2a-9b09-710c7d48f7ff)\r\nTitle should be like on the first screen (white on blue), in the second case (updated rich) white on dark (bug?)\r\n",
+      "issue_source": "issue #3569",
+      "source_files": [
+        "rich/panel.py"
+      ],
+      "names_source_path": false
+    },
+    {
+      "repo": "Textualize/rich",
+      "sha": "63d3200199f6d4a01268d71f98f27dbe416ee268",
+      "title": "perf: eliminate inspect imports from protocol.py, repr.py, and syntax.py",
+      "issue": "# perf: eliminate inspect imports from protocol.py, repr.py, and syntax.py\n\nperf: eliminate inspect imports from protocol.py, repr.py, and syntax.py\n\n- syntax.py: move Console, ConsoleOptions, JustifyMethod, RenderResult\n  to TYPE_CHECKING (already has future annotations). Eliminates\n  rich.console from syntax's import chain entirely.\n- protocol.py: replace `from inspect import isclass` with\n  `isinstance(x, type)` \u2014 identical behavior, no import needed.\n- repr.py: defer `import inspect` into auto_rich_repr() where\n  inspect.signature() is actually used.\n\nNone of these save time yet (inspect still comes in via dataclasses),\nbut they become free wins once dataclasses is removed from console.py.",
+      "issue_source": "commit_message (may leak fix)",
+      "source_files": [
+        "rich/protocol.py",
+        "rich/repr.py",
+        "rich/syntax.py"
+      ],
+      "names_source_path": false
+    },
+    {
+      "repo": "Textualize/rich",
+      "sha": "6ae321ad86a093bcf4251e1784e43b0654cb3987",
+      "title": "Merge branch 'master' into remove-typing-extensions-runtime",
+      "issue": "# Merge branch 'master' into remove-typing-extensions-runtime",
+      "issue_source": "commit_subject",
+      "source_files": [
+        "rich/console.py"
+      ],
+      "names_source_path": false
+    },
+    {
+      "repo": "Textualize/rich",
+      "sha": "ba2806e7f472d6c8e0118ce143562594be7f747b",
+      "title": "don't strip whitespace when soft_wrap is True",
+      "issue": "# don't strip whitespace when soft_wrap is True",
+      "issue_source": "commit_subject",
+      "source_files": [
+        "rich/text.py"
+      ],
+      "names_source_path": false
+    },
+    {
+      "repo": "Textualize/rich",
+      "sha": "60b064a70a9db813e96955b7b344f61f62817f4c",
+      "title": "fix for infinite loop in split_graphemes",
+      "issue": "# fix for infinite loop in split_graphemes",
+      "issue_source": "commit_subject",
+      "source_files": [
+        "rich/cells.py"
+      ],
+      "names_source_path": false
+    }
+  ]
+}

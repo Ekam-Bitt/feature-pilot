@@ -1,0 +1,36 @@
+{
+  "suite": "click",
+  "cases": [
+    "93ba0075f"
+  ],
+  "trials": [
+    {
+      "rung": "full",
+      "case": "93ba0075f",
+      "solved": false,
+      "clean": true,
+      "attempts": 2,
+      "resolved": 0,
+      "expected": 2,
+      "regressions": 0,
+      "tests_removed": 0,
+      "cost_usd": 1.2255,
+      "wall_seconds": 189.2,
+      "model_calls": 29,
+      "tool_calls": 42,
+      "input_tokens": 575601,
+      "output_tokens": 7428,
+      "hit_budget": false,
+      "per_role_cost": {
+        "planner": 0.0338,
+        "coder": 1.1444,
+        "debugger": 0.0472
+      },
+      "tool_calls_by_node": {
+        "retrieve": 18,
+        "code": 24
+      },
+      "error": "not retryable (assertion): click.echo() strips ANSI codes when appropriate by calling should_strip_ansi(file, resolve_color_default(color)) before writing (in src/click/utils.py). However, prompt()/confirm() in src/click/termui.py write the prompt text directly via visible_prompt_func/hidden_prompt_func (ultimately input()/getpass() through visible_prompt_func = _readline_prompt or similar), never routing the prompt string through strip_ansi/should_strip_ansi. So when CliRunner(color=False) is used, echo() output has ANSI stripped but confirm()/prompt() output retains raw ANSI escape codes, causing the two now-added regression tests (test_prompt_and_confirm_ansi_respects_color[confirm-no-color] and [prompt-no-color]) to fail. This is a pre-existing gap: the CHANGES.md entry and the test were added anticipating a fix in termui.py, but the actual code change to strip ANSI in prompt()/confirm() was never implemented \u2014 this patch (whatever it changed) did not add that termui.py fix, so these two tests were already failing before this patch and remain failing after it, confirming they are out of scope for whatever this patch addressed. The test_echo_via_pager failures are unrelated environment issues (missing/broken `less` pager in this sandboxed environment) also pre-existing and unrelated to any ANSI-stripping logic."
+    }
+  ]
+}

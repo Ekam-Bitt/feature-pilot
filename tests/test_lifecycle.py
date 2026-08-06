@@ -56,17 +56,19 @@ class TestIllegalTransitions:
     @pytest.mark.parametrize(
         ("src", "dst"),
         [
-            # Skipping the approval gate from CREATED bypasses planning entirely.
-            (RunPhase.CREATED, RunPhase.CODING),
-            # Cannot review a patch that was never tested.
-            (RunPhase.CODING, RunPhase.REVIEW),
-            # Cannot claim done straight out of testing without review.
-            (RunPhase.TESTING, RunPhase.DONE),
             # Debugging must go back through the coder, not around it.
             (RunPhase.DEBUGGING, RunPhase.TESTING),
             (RunPhase.DEBUGGING, RunPhase.REVIEW),
+            (RunPhase.DEBUGGING, RunPhase.DONE),
             # Backwards into planning from code is not a supported flow.
             (RunPhase.CODING, RunPhase.PLANNING),
+            # Nothing may reach a verdict without a patch having been written.
+            (RunPhase.CREATED, RunPhase.TESTING),
+            (RunPhase.CREATED, RunPhase.REVIEW),
+            (RunPhase.CREATED, RunPhase.DONE),
+            (RunPhase.INDEXING, RunPhase.CODING),
+            # Approval cannot jump the coder.
+            (RunPhase.WAITING_APPROVAL, RunPhase.TESTING),
         ],
     )
     def test_rejected(self, src: RunPhase, dst: RunPhase) -> None:
@@ -76,13 +78,32 @@ class TestIllegalTransitions:
 
     def test_error_names_the_legal_moves(self) -> None:
         """The message has to be actionable — this fires during development."""
-        with pytest.raises(IllegalTransition, match="TESTING"):
-            assert_transition(RunPhase.CODING, RunPhase.REVIEW)
+        with pytest.raises(IllegalTransition, match="CODING"):
+            assert_transition(RunPhase.DEBUGGING, RunPhase.REVIEW)
         try:
-            assert_transition(RunPhase.CODING, RunPhase.REVIEW)
+            assert_transition(RunPhase.DEBUGGING, RunPhase.REVIEW)
         except IllegalTransition as exc:
-            assert "allowed from CODING" in str(exc)
-            assert "TESTING" in str(exc)
+            assert "allowed from DEBUGGING" in str(exc)
+            assert "CODING" in str(exc)
+
+
+class TestAblationShortcuts:
+    """The table permits stage-skipping transitions so the pipeline can be
+    ablated (see graph/router.Stages). That deliberately loosens the invariant,
+    so the guarantee is restored where it matters: `test_router.py` asserts the
+    router never takes any of these under the full configuration.
+    """
+
+    @pytest.mark.parametrize(
+        ("src", "dst", "needs"),
+        [
+            (RunPhase.CREATED, RunPhase.CODING, "retrieval and planning both off"),
+            (RunPhase.CODING, RunPhase.REVIEW, "testing off"),
+            (RunPhase.TESTING, RunPhase.DONE, "review off"),
+        ],
+    )
+    def test_permitted_only_for_ablation(self, src: RunPhase, dst: RunPhase, needs: str) -> None:
+        assert can_transition(src, dst), f"{src}->{dst} is needed when {needs}"
 
 
 class TestFailureAndTerminals:

@@ -21,12 +21,18 @@ from featurepilot.lifecycle import RunPhase
 PLANNER_TOOLS = ("read_file", "glob", "grep")
 
 
-def render_context(state: AgentState, *, max_chars: int = 24_000) -> str:
+def render_context(state: AgentState, *, max_chars: int = 20_000) -> str:
     """Format retrieved chunks for a prompt.
 
     Bounded because context crowds out reasoning: past a point, more retrieved
     code makes the model worse, not better. Chunks arrive ranked, so truncating
     the tail drops the least relevant material first.
+
+    Bounded, but not aggressively. This block is re-sent on every tool-loop
+    iteration, so it is tempting to cut hard — measured on click, cutting it to
+    9k made things worse: the agent lost the context it needed to make progress
+    and re-explored instead, taking total tokens from 406k to 680k. Starving
+    the coder costs more than feeding it.
     """
     context = state.get("context")
     if context is None or not context.chunks:

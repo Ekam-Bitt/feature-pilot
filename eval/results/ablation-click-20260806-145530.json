@@ -1,0 +1,36 @@
+{
+  "suite": "click",
+  "cases": [
+    "93ba0075f"
+  ],
+  "trials": [
+    {
+      "rung": "full",
+      "case": "93ba0075f",
+      "solved": false,
+      "clean": true,
+      "attempts": 2,
+      "resolved": 0,
+      "expected": 2,
+      "regressions": 0,
+      "tests_removed": 0,
+      "cost_usd": 2.0388,
+      "wall_seconds": 218.9,
+      "model_calls": 39,
+      "tool_calls": 42,
+      "input_tokens": 671400,
+      "output_tokens": 8364,
+      "hit_budget": true,
+      "per_role_cost": {
+        "planner": 0.0322,
+        "coder": 1.9597,
+        "debugger": 0.047
+      },
+      "tool_calls_by_node": {
+        "retrieve": 18,
+        "code": 24
+      },
+      "error": "run d4f132cad8f3 hit the cost ceiling: $2.0388 >= $2.00"
+    }
+  ]
+}

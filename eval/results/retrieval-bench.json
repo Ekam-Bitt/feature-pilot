@@ -1,0 +1,581 @@
+{
+  "filesystem": {
+    "p_at_1": 0.1667,
+    "p_at_3": 0.25,
+    "mrr": 0.2319,
+    "avg_context_bytes": 183796,
+    "avg_files": 6.0,
+    "avg_effort": 16.17,
+    "avg_bytes_scanned": 504567,
+    "cases": [
+      {
+        "case": "93ba0075f",
+        "rr": 0.2,
+        "truth": [
+          "src/click/termui.py"
+        ],
+        "ranked": [
+          "tests/test_termui.py",
+          "docs/testing.md",
+          "docs/utils.md",
+          "examples/termui/termui.py",
+          "src/click/termui.py",
+          "tests/test_testing.py"
+        ]
+      },
+      {
+        "case": "6f85d26dc",
+        "rr": 0.0,
+        "truth": [
+          "src/click/types.py"
+        ],
+        "ranked": [
+          "CHANGES.md",
+          "docs/handling-files.md",
+          "docs/index.md",
+          "docs/options.md",
+          "docs/parameter-types.md",
+          "docs/standalone-apps.md"
+        ]
+      },
+      {
+        "case": "0551bf535",
+        "rr": 0.0,
+        "truth": [
+          "src/click/formatting.py"
+        ],
+        "ranked": [
+          "CHANGES.rst",
+          "src/click/core.py",
+          "tests/test_formatting.py",
+          "tests/test_options.py",
+          "docs/advanced.md",
+          "tests/test_arguments.py"
+        ]
+      },
+      {
+        "case": "684b3f5b5",
+        "rr": 0.0,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "docs/documentation.md",
+          "docs/quickstart.md",
+          "tests/typing/typing_options.py",
+          "docs/commands-and-groups.md",
+          "docs/index.md",
+          "tests/test_options.py"
+        ]
+      },
+      {
+        "case": "665736bc8",
+        "rr": 1.0,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "src/click/core.py",
+          "tests/test_commands.py",
+          "docs/documentation.md",
+          "tests/test_basic.py",
+          "tests/test_options.py",
+          "CHANGES.rst"
+        ]
+      },
+      {
+        "case": "7d05a59b9",
+        "rr": 1.0,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "src/click/core.py",
+          "CHANGES.rst",
+          "tests/test_context.py",
+          "tests/test_defaults.py",
+          "tests/test_options.py",
+          "docs/advanced.md"
+        ]
+      },
+      {
+        "case": "95fe8ff59",
+        "rr": 0.0,
+        "truth": [
+          "rich/prompt.py"
+        ],
+        "ranked": [
+          ".github/ISSUE_TEMPLATE/bug_report.md",
+          "CHANGELOG.md",
+          "README.id.md",
+          "README.it.md",
+          "README.md",
+          "README.pl.md"
+        ]
+      },
+      {
+        "case": "30e5ed61a",
+        "rr": 0.25,
+        "truth": [
+          "rich/panel.py"
+        ],
+        "ranked": [
+          "CHANGELOG.md",
+          "docs/source/console.rst",
+          "rich/_win32_console.py",
+          "rich/panel.py",
+          "rich/__main__.py",
+          "tests/test_console.py"
+        ]
+      },
+      {
+        "case": "63d320019",
+        "rr": 0.0,
+        "truth": [
+          "rich/protocol.py",
+          "rich/repr.py",
+          "rich/syntax.py"
+        ],
+        "ranked": [
+          "rich/pretty.py",
+          "CHANGELOG.md",
+          "rich/console.py",
+          "rich/containers.py",
+          "rich/table.py",
+          "rich/traceback.py"
+        ]
+      },
+      {
+        "case": "6ae321ad8",
+        "rr": 0.3333,
+        "truth": [
+          "rich/console.py"
+        ],
+        "ranked": [
+          "CHANGELOG.md",
+          "rich/progress.py",
+          "rich/console.py",
+          "rich/syntax.py",
+          "CONTRIBUTING.md",
+          "README.cn.md"
+        ]
+      },
+      {
+        "case": "ba2806e7f",
+        "rr": 0.0,
+        "truth": [
+          "rich/text.py"
+        ],
+        "ranked": [
+          "CHANGELOG.md",
+          "rich/pretty.py",
+          "rich/syntax.py",
+          "tests/test_text.py",
+          "docs/source/console.rst",
+          "rich/_wrap.py"
+        ]
+      },
+      {
+        "case": "60b064a70",
+        "rr": 0.0,
+        "truth": [
+          "rich/cells.py"
+        ],
+        "ranked": [
+          "CHANGELOG.md",
+          "rich/protocol.py",
+          "tests/test_cells.py",
+          "tests/test_traceback.py",
+          "docs/source/progress.rst",
+          "docs/source/prompt.rst"
+        ]
+      }
+    ]
+  },
+  "filesystem+clean-query": {
+    "p_at_1": 0.1667,
+    "p_at_3": 0.25,
+    "mrr": 0.2278,
+    "avg_context_bytes": 127445,
+    "avg_files": 6.0,
+    "avg_effort": 16.08,
+    "avg_bytes_scanned": 396014,
+    "cases": [
+      {
+        "case": "93ba0075f",
+        "rr": 0.0,
+        "truth": [
+          "src/click/termui.py"
+        ],
+        "ranked": [
+          "CHANGES.md",
+          "tests/test_termui.py",
+          "tests/test_utils.py",
+          "tests/test_testing.py",
+          ".github/ISSUE_TEMPLATE/bug-report.md",
+          "docs/option-decorators.md"
+        ]
+      },
+      {
+        "case": "6f85d26dc",
+        "rr": 0.0,
+        "truth": [
+          "src/click/types.py"
+        ],
+        "ranked": [
+          "docs/commands.md",
+          "docs/options.md",
+          "src/click/core.py",
+          "tests/test_arguments.py",
+          "tests/test_basic.py",
+          "tests/test_options.py"
+        ]
+      },
+      {
+        "case": "0551bf535",
+        "rr": 0.2,
+        "truth": [
+          "src/click/formatting.py"
+        ],
+        "ranked": [
+          "tests/test_formatting.py",
+          "src/click/core.py",
+          "CHANGES.rst",
+          ".github/ISSUE_TEMPLATE/bug-report.md",
+          "src/click/formatting.py",
+          "docs/api.md"
+        ]
+      },
+      {
+        "case": "684b3f5b5",
+        "rr": 0.0,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "docs/documentation.md",
+          "docs/parameter-types.md",
+          "CHANGES.rst",
+          "docs/commands-and-groups.md",
+          "docs/index.md",
+          "docs/parameters.md"
+        ]
+      },
+      {
+        "case": "665736bc8",
+        "rr": 1.0,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "src/click/core.py",
+          "docs/commands-and-groups.md",
+          "docs/commands.md",
+          "tests/test_commands.py",
+          "CHANGES.rst",
+          "docs/documentation.md"
+        ]
+      },
+      {
+        "case": "7d05a59b9",
+        "rr": 1.0,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "src/click/core.py",
+          "CHANGES.rst",
+          "tests/test_options.py",
+          "tests/test_defaults.py",
+          "tests/test_context.py",
+          "docs/advanced.md"
+        ]
+      },
+      {
+        "case": "95fe8ff59",
+        "rr": 0.0,
+        "truth": [
+          "rich/prompt.py"
+        ],
+        "ranked": [
+          ".github/ISSUE_TEMPLATE/bug_report.md",
+          "README.cn.md",
+          "README.de-ch.md",
+          "README.de.md",
+          "README.es.md",
+          "README.fa.md"
+        ]
+      },
+      {
+        "case": "30e5ed61a",
+        "rr": 0.0,
+        "truth": [
+          "rich/panel.py"
+        ],
+        "ranked": [
+          "README.it.md",
+          "README.md",
+          "README.pt-br.md",
+          "README.tr.md",
+          "README.cn.md",
+          "README.de-ch.md"
+        ]
+      },
+      {
+        "case": "63d320019",
+        "rr": 0.2,
+        "truth": [
+          "rich/protocol.py",
+          "rich/repr.py",
+          "rich/syntax.py"
+        ],
+        "ranked": [
+          "CHANGELOG.md",
+          "rich/console.py",
+          "rich/markdown.py",
+          "rich/pretty.py",
+          "rich/syntax.py",
+          "rich/table.py"
+        ]
+      },
+      {
+        "case": "6ae321ad8",
+        "rr": 0.3333,
+        "truth": [
+          "rich/console.py"
+        ],
+        "ranked": [
+          "CHANGELOG.md",
+          "rich/progress.py",
+          "rich/console.py",
+          "rich/syntax.py",
+          "CONTRIBUTING.md",
+          "README.cn.md"
+        ]
+      },
+      {
+        "case": "ba2806e7f",
+        "rr": 0.0,
+        "truth": [
+          "rich/text.py"
+        ],
+        "ranked": [
+          "CHANGELOG.md",
+          "rich/pretty.py",
+          "rich/syntax.py",
+          "tests/test_text.py",
+          "docs/source/console.rst",
+          "rich/_wrap.py"
+        ]
+      },
+      {
+        "case": "60b064a70",
+        "rr": 0.0,
+        "truth": [
+          "rich/cells.py"
+        ],
+        "ranked": [
+          "CHANGELOG.md",
+          "rich/protocol.py",
+          "tests/test_cells.py",
+          "tests/test_traceback.py",
+          "docs/source/progress.rst",
+          "docs/source/prompt.rst"
+        ]
+      }
+    ]
+  },
+  "clean-query+content-rank": {
+    "p_at_1": 0.4167,
+    "p_at_3": 0.6667,
+    "mrr": 0.5417,
+    "avg_context_bytes": 120988,
+    "avg_files": 6.0,
+    "avg_effort": 42.67,
+    "avg_bytes_scanned": 917835,
+    "cases": [
+      {
+        "case": "93ba0075f",
+        "rr": 1.0,
+        "truth": [
+          "src/click/termui.py"
+        ],
+        "ranked": [
+          "src/click/termui.py",
+          "tests/test_utils.py",
+          "tests/test_basic.py",
+          "tests/test_commands.py",
+          "tests/test_custom_classes.py",
+          "examples/colors/colors.py"
+        ]
+      },
+      {
+        "case": "6f85d26dc",
+        "rr": 0.0,
+        "truth": [
+          "src/click/types.py"
+        ],
+        "ranked": [
+          ".github/ISSUE_TEMPLATE/bug-report.md",
+          "src/click/core.py",
+          "tests/test_options.py",
+          "docs/conf.py",
+          "docs/commands.md",
+          "docs/options.md"
+        ]
+      },
+      {
+        "case": "0551bf535",
+        "rr": 1.0,
+        "truth": [
+          "src/click/formatting.py"
+        ],
+        "ranked": [
+          "src/click/formatting.py",
+          "src/click/core.py",
+          "tests/test_formatting.py",
+          ".github/ISSUE_TEMPLATE/bug-report.md",
+          "src/click/__init__.py",
+          "CHANGES.rst"
+        ]
+      },
+      {
+        "case": "684b3f5b5",
+        "rr": 0.5,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "src/click/decorators.py",
+          "src/click/core.py",
+          "CHANGES.rst",
+          "docs/options.md",
+          "docs/standalone-apps.md",
+          "docs/documentation.md"
+        ]
+      },
+      {
+        "case": "665736bc8",
+        "rr": 1.0,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "src/click/core.py",
+          "tests/test_commands.py",
+          "tests/test_basic.py",
+          "tests/test_context.py",
+          "tests/test_shell_completion.py",
+          "examples/imagepipe/imagepipe.py"
+        ]
+      },
+      {
+        "case": "7d05a59b9",
+        "rr": 1.0,
+        "truth": [
+          "src/click/core.py"
+        ],
+        "ranked": [
+          "src/click/core.py",
+          "src/click/types.py",
+          "tests/test_options.py",
+          "tests/test_termui.py",
+          "docs/parameter-types.md",
+          "tests/test_defaults.py"
+        ]
+      },
+      {
+        "case": "95fe8ff59",
+        "rr": 0.0,
+        "truth": [
+          "rich/prompt.py"
+        ],
+        "ranked": [
+          ".github/ISSUE_TEMPLATE/bug_report.md",
+          "README.cn.md",
+          "README.de-ch.md",
+          "README.de.md",
+          "README.es.md",
+          "README.fa.md"
+        ]
+      },
+      {
+        "case": "30e5ed61a",
+        "rr": 0.0,
+        "truth": [
+          "rich/panel.py"
+        ],
+        "ranked": [
+          "README.it.md",
+          "README.md",
+          "README.pt-br.md",
+          "README.tr.md",
+          "README.cn.md",
+          "README.de-ch.md"
+        ]
+      },
+      {
+        "case": "63d320019",
+        "rr": 0.5,
+        "truth": [
+          "rich/protocol.py",
+          "rich/repr.py",
+          "rich/syntax.py"
+        ],
+        "ranked": [
+          "rich/console.py",
+          "rich/repr.py",
+          "rich/markdown.py",
+          "rich/syntax.py",
+          "rich/text.py",
+          "rich/__main__.py"
+        ]
+      },
+      {
+        "case": "6ae321ad8",
+        "rr": 0.5,
+        "truth": [
+          "rich/console.py"
+        ],
+        "ranked": [
+          "rich/progress.py",
+          "rich/console.py",
+          "rich/syntax.py",
+          "CHANGELOG.md",
+          "CONTRIBUTING.md",
+          "README.cn.md"
+        ]
+      },
+      {
+        "case": "ba2806e7f",
+        "rr": 0.0,
+        "truth": [
+          "rich/text.py"
+        ],
+        "ranked": [
+          "rich/pretty.py",
+          "rich/console.py",
+          "rich/highlighter.py",
+          "rich/syntax.py",
+          "rich/table.py",
+          "rich/_wrap.py"
+        ]
+      },
+      {
+        "case": "60b064a70",
+        "rr": 1.0,
+        "truth": [
+          "rich/cells.py"
+        ],
+        "ranked": [
+          "rich/cells.py",
+          "rich/protocol.py",
+          "rich/_emoji_codes.py",
+          "rich/_loop.py",
+          "rich/_wrap.py",
+          "rich/box.py"
+        ]
+      }
+    ]
+  }
+}

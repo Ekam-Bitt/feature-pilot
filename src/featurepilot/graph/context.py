@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from featurepilot.config import Role, Settings
+from featurepilot.graph.router import FULL, Stages
 from featurepilot.retrieval.base import Retriever
 from featurepilot.tools.registry import ToolRegistry
 
@@ -74,6 +75,9 @@ class RunContext:
     #: Skip the human approval gate (`--yes`). The plan still records
     #: open_questions; they just don't block.
     auto_approve: bool = False
+    #: Which stages are active. Defaults to the whole pipeline; the ablation
+    #: harness varies it to measure what each stage contributes.
+    stages: Stages = FULL
     #: Populated by nodes so the reviewer and PR summary can mention what the
     #: coder assumed without re-deriving it.
     notes: list[str] = field(default_factory=list)

@@ -164,7 +164,26 @@ class TestDynamicDiscovery:
             ok = await registry.call("read_file", path="src/shopsvc/cart.py")
             assert ok.ok
             assert "SHIPPING_FLAT" in ok.content
-            assert ok.content.splitlines()[1].startswith("    2  "), "line gutter intact"
+            lines = ok.content.splitlines()
+            # A header names the slice, so the model knows what it received and can
+            # ask for a different range rather than assuming it saw the whole file.
+            assert lines[0].startswith("src/shopsvc/cart.py (lines 1-")
+            assert any(line.startswith("    2  ") for line in lines), "line gutter intact"
+
+    async def test_ranged_reads(self, settings: Settings) -> None:
+        """A whole-file read of click's core.py is ~35k tokens. Ranges are how the
+        coder avoids paying that to see ten lines."""
+        async with mcp_env(settings) as (_box, registry):
+            result = await registry.call(
+                "read_file", path="src/shopsvc/cart.py", offset=10, limit=5
+            )
+            assert result.ok
+            lines = result.content.splitlines()
+            assert lines[0].startswith("src/shopsvc/cart.py (lines 10-14 of ")
+            # Numbering reflects the real position in the file, not the slice, so
+            # quoting a line back to edit_file still refers to the right place.
+            assert lines[1].startswith("   10  ")
+            assert len([ln for ln in lines[1:] if ln.strip()]) <= 5
 
             missing = await registry.call("read_file", path="src/nope.py")
             assert not missing.ok

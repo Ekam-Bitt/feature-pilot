@@ -27,6 +27,22 @@ class BudgetExceeded(RuntimeError):
 
 
 @dataclass(slots=True)
+class RoleSpend:
+    """What one role cost. Keyed by role rather than node because a node may make
+    several calls and the escalation path swaps the model underneath."""
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read: int = 0
+    cost_usd: float = 0.0
+    calls: int = 0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
+@dataclass(slots=True)
 class RunTotals:
     input_tokens: int = 0
     output_tokens: int = 0
@@ -41,6 +57,16 @@ class RunTotals:
     total_refs: int = 0
     nonexistent_refs: int = 0
     per_node_ms: dict[str, int] = field(default_factory=dict)
+    #: Tokens, cost and call count attributed to the role that spent them.
+    #: Latency alone cannot answer "what would dropping the reviewer save"; an
+    #: ablation needs the spend broken out, and so does any per-node cost work.
+    per_role: dict[str, RoleSpend] = field(default_factory=dict)
+    #: Tool invocations per node, so a node's tool appetite is visible without
+    #: re-reading a trace.
+    tool_calls_by_node: dict[str, int] = field(default_factory=dict)
+    #: Reviewer verdicts, for an acceptance rate across runs.
+    reviews_approved: int = 0
+    reviews_rejected: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -49,6 +75,23 @@ class RunTotals:
     @property
     def nonexistent_ref_rate(self) -> float:
         return self.nonexistent_refs / self.total_refs if self.total_refs else 0.0
+
+    @property
+    def review_acceptance_rate(self) -> float:
+        """Share of reviews that approved. A rate near 1.0 across many runs
+        suggests the reviewer is a rubber stamp; near 0.0 suggests it is blocking
+        work the tests already cleared."""
+        seen = self.reviews_approved + self.reviews_rejected
+        return self.reviews_approved / seen if seen else 0.0
+
+    def cost_share(self) -> dict[str, float]:
+        """Fraction of spend per role, largest first. The input to deciding which
+        node to re-tier."""
+        total = self.cost_usd
+        if not total:
+            return {}
+        share = {role: spend.cost_usd / total for role, spend in self.per_role.items()}
+        return dict(sorted(share.items(), key=lambda kv: -kv[1]))
 
 
 def _price(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -101,6 +144,17 @@ class MetricsRecorder:
             model_calls=self.totals.model_calls,
             attempts=self.totals.attempts,
             nonexistent_ref_rate=round(self.totals.nonexistent_ref_rate, 4),
+            review_acceptance_rate=round(self.totals.review_acceptance_rate, 4),
+            per_role={
+                role: {
+                    "calls": spend.calls,
+                    "input_tokens": spend.input_tokens,
+                    "output_tokens": spend.output_tokens,
+                    "cost_usd": round(spend.cost_usd, 6),
+                }
+                for role, spend in self.totals.per_role.items()
+            },
+            tool_calls_by_node=dict(self.totals.tool_calls_by_node),
         )
 
     @asynccontextmanager
@@ -147,6 +201,13 @@ class MetricsRecorder:
         self.totals.cache_read += cache_read
         self.totals.cost_usd += cost
         self.totals.model_calls += 1
+
+        spend = self.totals.per_role.setdefault(str(role), RoleSpend())
+        spend.input_tokens += input_tokens
+        spend.output_tokens += output_tokens
+        spend.cache_read += cache_read
+        spend.cost_usd += cost
+        spend.calls += 1
         await self._emit(
             EventKind.MODEL_CALLED,
             role=str(role),
@@ -157,12 +218,24 @@ class MetricsRecorder:
             cost_usd=round(cost, 6),
         )
 
-    async def record_tool_calls(self, calls: Iterable[dict[str, Any]]) -> None:
+    async def record_tool_calls(
+        self, calls: Iterable[dict[str, Any]], node: str | None = None
+    ) -> None:
         """Drain the ToolRegistry ledger. Nodes need no tool instrumentation
         of their own because the registry already logged every invocation."""
         for call in calls:
             self.totals.tool_calls += 1
-            await self._emit(EventKind.TOOL_CALLED, **call)
+            if node:
+                by_node = self.totals.tool_calls_by_node
+                by_node[node] = by_node.get(node, 0) + 1
+            await self._emit(EventKind.TOOL_CALLED, node=node, **call)
+
+    def record_review(self, approved: bool) -> None:
+        """Track reviewer verdicts so an acceptance rate exists across runs."""
+        if approved:
+            self.totals.reviews_approved += 1
+        else:
+            self.totals.reviews_rejected += 1
 
     def record_refs(self, total: int, nonexistent: int) -> None:
         self.totals.total_refs += total

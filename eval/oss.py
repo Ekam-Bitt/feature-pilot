@@ -154,6 +154,32 @@ class OSSCase:
 MIN_USEFUL_ISSUE_CHARS = 300
 
 
+#: Directory names that never contain the code a fix changes.
+_NON_SOURCE_DIRS = frozenset({"tests", "test", "examples", "docs", "doc", "benchmarks"})
+
+
+def is_test_file(path: str) -> bool:
+    """Whether a path is a test, decided from its name rather than its location.
+
+    Layout-agnostic on purpose. An earlier version required `src/**` and `tests/**`,
+    which silently found zero candidates in `rich` — a package with no `src/`
+    directory. The assumption was in the tooling, not the ranker, and only a second
+    repository with a different layout could surface it.
+    """
+    parts = path.lower().split("/")
+    name = parts[-1]
+    if name in {"conftest.py"} or name.startswith("test_") or name.endswith("_test.py"):
+        return True
+    return any(p in {"tests", "test"} for p in parts)
+
+
+def is_source_file(path: str) -> bool:
+    """A Python file that is implementation rather than test, example, or docs."""
+    if not path.endswith(".py") or is_test_file(path):
+        return False
+    return not any(p in _NON_SOURCE_DIRS for p in path.lower().split("/"))
+
+
 def candidate_commits(clone: Path, limit: int = 200) -> list[tuple[str, str]]:
     """Commits that changed both source and tests without being sprawling."""
     log = _git(clone, "log", f"-{limit}", "--format=%H\t%s")
@@ -165,9 +191,7 @@ def candidate_commits(clone: Path, limit: int = 200) -> list[tuple[str, str]]:
         files = [f for f in _git(clone, "show", "--name-only", "--format=", sha).splitlines() if f]
         if len(files) > MAX_FILES_IN_COMMIT:
             continue
-        src = [f for f in files if f.startswith("src/") and f.endswith(".py")]
-        tests = [f for f in files if f.startswith("tests/") and f.endswith(".py")]
-        if src and tests:
+        if any(is_source_file(f) for f in files) and any(is_test_file(f) for f in files):
             candidates.append((sha, subject))
     return candidates
 
@@ -271,8 +295,8 @@ def build_case(
     fail.
     """
     files = [f for f in _git(clone, "show", "--name-only", "--format=", sha).splitlines() if f]
-    source_files = frozenset(f for f in files if f.startswith("src/") and f.endswith(".py"))
-    test_files = frozenset(f for f in files if f.startswith("tests/"))
+    source_files = frozenset(f for f in files if is_source_file(f))
+    test_files = frozenset(f for f in files if is_test_file(f))
 
     case = OSSCase(
         repo=repo,

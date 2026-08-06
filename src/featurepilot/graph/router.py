@@ -16,6 +16,7 @@ a model call to rediscover that each turn would be waste dressed as architecture
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Final
 
 from featurepilot.graph.state import AgentState
@@ -34,6 +35,37 @@ SUMMARIZE: Final = "summarize"
 FINISH: Final = "__end__"
 
 
+@dataclass(frozen=True, slots=True)
+class Stages:
+    """Which stages of the graph are active.
+
+    Exists so the pipeline can be ablated: run the same cases with retrieval off,
+    or planning off, or repair off, and measure what each stage actually
+    contributes. Without this, "the agent" is one indivisible thing and a tie
+    against a one-shot baseline says nothing about *which* part is or is not
+    earning its cost.
+
+    `code` and `summarize` have no flags — without coding there is no patch to
+    score, and the summary is the terminal step.
+    """
+
+    retrieve: bool = True
+    plan: bool = True
+    test: bool = True
+    debug: bool = True
+    review: bool = True
+
+    @property
+    def label(self) -> str:
+        """Short name for a results table."""
+        on = [n for n in ("retrieve", "plan", "test", "debug", "review") if getattr(self, n)]
+        return "+".join(on) if on else "code-only"
+
+
+#: The complete pipeline.
+FULL = Stages()
+
+
 def _as_phase(value: object) -> RunPhase:
     """Normalise a phase that may have come back from storage as a string."""
     if isinstance(value, RunPhase):
@@ -44,7 +76,7 @@ def _as_phase(value: object) -> RunPhase:
         raise AssertionError(f"unknown run phase {value!r}") from None
 
 
-def route(state: AgentState, *, max_attempts: int = 3) -> str:
+def route(state: AgentState, *, max_attempts: int = 3, stages: Stages = FULL) -> str:
     """Return the next vertex for `state`.
 
     Reads `phase` plus the relevant typed output and nothing else. No mutation,
@@ -62,6 +94,10 @@ def route(state: AgentState, *, max_attempts: int = 3) -> str:
         return FINISH
 
     if phase is RunPhase.CREATED:
+        # With retrieval off the coder works from the issue alone, which is the
+        # control for 'does searching the repository help at all'.
+        if not stages.retrieve:
+            return PLAN if stages.plan else CODE
         return RETRIEVE
 
     if phase is RunPhase.INDEXING:  # Phase 1B only
@@ -70,7 +106,7 @@ def route(state: AgentState, *, max_attempts: int = 3) -> str:
     if phase is RunPhase.PLANNING:
         # Retrieval runs before planning so the planner reads real code rather
         # than guessing at structure.
-        if state.get("context") is None:
+        if state.get("context") is None and stages.retrieve:
             return RETRIEVE
         # A rejection must re-plan. Checking this before the `plan is None` test
         # matters: the rejected plan is still in state, so without it the run
@@ -96,6 +132,10 @@ def route(state: AgentState, *, max_attempts: int = 3) -> str:
         return CODE
 
     if phase is RunPhase.TESTING:
+        # Without the tester there is no verdict, so the run hands back whatever
+        # was written. That is the honest 'plan and code, no verification' rung.
+        if not stages.test:
+            return REVIEW if stages.review else SUMMARIZE
         tests = state.get("tests")
         if tests is None:
             return TEST
@@ -106,7 +146,12 @@ def route(state: AgentState, *, max_attempts: int = 3) -> str:
         # Success goes to REVIEW, not straight to the summary: passing tests are
         # necessary but not sufficient, and a patch that edited a test to make it
         # agree with the code is green and wrong.
-        return REVIEW if tests.success else DEBUG
+        if tests.success:
+            return REVIEW if stages.review else SUMMARIZE
+        # Testing without repair tells you the patch failed but cannot act on
+        # it. Ending here rather than reviewing a known-broken patch keeps the
+        # rung meaningful.
+        return DEBUG if stages.debug else FINISH
 
     if phase is RunPhase.DEBUGGING:
         diagnosis = state.get("diagnosis")
@@ -120,6 +165,8 @@ def route(state: AgentState, *, max_attempts: int = 3) -> str:
         return CODE
 
     if phase is RunPhase.REVIEW:
+        if not stages.review:
+            return SUMMARIZE
         review = state.get("review")
         if review is None:
             return REVIEW
