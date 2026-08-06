@@ -84,8 +84,9 @@ pythonpath = ["."]
 markers = [
     "docker: requires a running Docker daemon",
     "llm: makes real model API calls (costs tokens)",
+    "postgres: requires the compose Postgres on FP_POSTGRES_DSN",
 ]
-addopts = "-m 'not docker and not llm' --strict-markers"
+addopts = "-m 'not docker and not llm and not postgres' --strict-markers"
 # `TesterOutput` is a Pydantic contract, not a test class. pytest warns on any
 # Test*-named class it cannot collect; renaming a core contract to appease the
 # collector would be the tail wagging the dog.

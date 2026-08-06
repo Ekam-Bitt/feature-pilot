@@ -335,8 +335,11 @@ def _serde() -> Any:
     from featurepilot.lifecycle import RunPhase as _RunPhase
 
     allowed = [
-        # The state's phase enum. Without it a resumed run gets a plain str
-        # back, and every identity check in the router silently stops matching.
+        # The state's phase enum. Declared for completeness, but it does *not*
+        # survive as a `RunPhase`: a StrEnum is stored as the string it already
+        # is, so a round-trip returns a plain `str` whether or not it is listed
+        # here. `router._as_phase` is what actually keeps a resumed run routable.
+        # The entries that follow are the ones this list earns its place for.
         _RunPhase,
         contracts.PlannerOutput,
         contracts.RetrieverOutput,

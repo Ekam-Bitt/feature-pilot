@@ -82,11 +82,13 @@ def route(state: AgentState, *, max_attempts: int = 3, stages: Stages = FULL) ->
     Reads `phase` plus the relevant typed output and nothing else. No mutation,
     no I/O — feed it a dict and assert on the answer.
 
-    The phase is coerced rather than trusted. A checkpoint round-trip returns it
-    as a plain `str` unless the enum is registered with the serialiser, and every
-    branch below tests identity — so a resumed run would fall through to "no rule
-    for phase" and die. Registering the enum fixes the storage; coercing here
-    means correctness does not depend on having remembered to.
+    The phase is coerced rather than trusted, and that coercion is load-bearing
+    rather than defensive. A checkpoint round-trip returns the phase as a plain
+    `str` — measured, not assumed — because `RunPhase` is a `StrEnum` and msgpack
+    stores it as the string it already is. Registering the enum with the
+    serialiser does not change that and cannot: there is no distinguishable type
+    on the wire to restore. Every branch below tests identity, so without
+    `_as_phase` a resumed run would fall through to "no rule for phase" and die.
     """
     phase = _as_phase(state.get("phase", RunPhase.CREATED))
 

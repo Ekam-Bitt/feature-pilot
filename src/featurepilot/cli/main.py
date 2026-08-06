@@ -348,6 +348,18 @@ def doctor() -> None:
     except Exception as exc:  # noqa: BLE001
         table.add_row("postgres", "[yellow]absent[/yellow]", f"resume disabled — {str(exc)[:44]}")
 
+    # Redis is easy to omit here and shouldn't be: it carries the API's SSE
+    # events, and `manager.subscribe` returns None when it is down rather than
+    # raising. A stream then degrades to silence, so without this row a user with
+    # Redis stopped gets an empty event feed and a clean bill of health.
+    try:
+        import redis
+
+        redis.from_url(settings.redis_url, socket_connect_timeout=3).ping()
+        table.add_row("redis", "[green]ok[/green]", "API event stream will deliver")
+    except Exception as exc:  # noqa: BLE001
+        table.add_row("redis", "[yellow]absent[/yellow]", f"SSE silent — {str(exc)[:48]}")
+
     for role in (Role.PLANNER, Role.CODER, Role.REVIEWER):
         table.add_row(f"model:{role}", "[green]ok[/green]", settings.model_for(role))
 

@@ -1,7 +1,7 @@
 # Feature Pilot
 
 [![CI](https://github.com/Ekam-Bitt/feature-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Ekam-Bitt/feature-pilot/actions/workflows/ci.yml)
-![tests](https://img.shields.io/badge/tests-354%20offline%20%2B%2026%20docker-brightgreen)
+![tests](https://img.shields.io/badge/tests-358%20offline%20%2B%2028%20gated-brightgreen)
 ![python](https://img.shields.io/badge/python-3.13-blue)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -65,7 +65,7 @@ rather than the way it was planned.
 | Correctness driver | **Ranking, not recall.** The right file was already in the candidate set in 6/6 cases |
 | Cost finding | Better retrieval bought correctness and **not** cost — $1.219 to pass vs $1.226 to fail |
 | Toy fixture | 5/5 solved — and a one-shot prompt with no tools, tests or repair loop tied it at 40% of the cost |
-| Tests | 354 offline (no Docker, no API key, 14s) + 26 containerised |
+| Tests | 358 offline (no Docker, no datastore, no API key) + 28 gated behind real infrastructure |
 | Total spend | **$8.43**, of which $3.77 bought four failed runs and one lesson about instruments |
 
 ## The findings in one line each
@@ -380,8 +380,9 @@ curl -fsSL https://cli.langsmith.com/install.sh | sh
 ## Tests
 
 ```bash
-uv run pytest              # 354 tests: seams + units. No Docker, no API calls
+uv run pytest              # 358 tests: seams + units. No Docker, no datastore, no API calls
 uv run pytest -m docker    # 26 tests: real container, real MCP servers
+uv run pytest -m postgres  # 2 tests: checkpoint round-trip against the compose Postgres
 uv run pytest -m llm       # real model calls (costs tokens)
 ```
 
@@ -391,7 +392,7 @@ abstraction is decorative — that constraint *is* the test.
 
 That constraint is also what makes CI cheap: every push runs `ruff check`,
 `ruff format --check`, `mypy src eval` and the offline suite, with no daemon, no
-datastore and no API key. CI reports **346 passed, 8 skipped** — the 8 need a local
+datastore and no API key. CI reports **350 passed, 8 skipped** — the 8 need a local
 fixture virtualenv that isn't committed. `mypy` covers the evaluation harness as
 well as the agent, because three of this project's bugs corrupted *scoring*
 silently, and a harness that miscounts is worse than no harness.
