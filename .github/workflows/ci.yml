@@ -1,0 +1,62 @@
+# Verifies the claims the README makes.
+#
+# The offline suite is the whole point of this workflow: 354 tests that need no
+# Docker daemon, no Postgres, no Redis and no API key, because every seam is
+# exercised against a fake `ToolRegistry` and a stub `Retriever`. If a node can
+# only be tested with a live container, the abstraction is decorative — so the
+# constraint that makes CI cheap is the same constraint that keeps the design
+# honest.
+#
+# Deliberately excluded: `-m docker` (needs a daemon and builds a 387 MB image)
+# and `-m llm` (spends real money). Both are run locally before a release.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A force-push mid-run should cancel the superseded run, not queue behind it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: lint, types, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # Reads .python-version (3.13) and installs that interpreter exactly.
+      - name: Install Python
+        run: uv python install
+
+      # --frozen fails rather than silently resolving something new, so CI can
+      # never pass against a dependency set the lockfile does not describe.
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      # src *and* eval: an evaluation harness that miscounts is worse than no
+      # harness, and three scoring bugs in this project's history were silent.
+      - name: Types
+        run: uv run mypy src eval
+
+      - name: Tests
+        run: uv run pytest

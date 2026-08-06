@@ -163,11 +163,11 @@ async def main() -> int:
 
         if ok:
             good.append(case)
-            located = "  [issue names the file]" if case.names_source_path else ""
+            location_note = "  [issue names the file]" if case.names_source_path else ""
             print(
                 f"    KEEP  fail_to_pass={len(case.fail_to_pass)} "
                 f"of {case.collected_total} collected  "
-                f"issue={case.issue_source}{located}  ({elapsed:.0f}s)",
+                f"issue={case.issue_source}{location_note}  ({elapsed:.0f}s)",
                 flush=True,
             )
         else:

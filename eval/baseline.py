@@ -206,6 +206,18 @@ def _load_agent_results() -> dict[str, dict[str, object]]:
     return {o["issue"]: o for o in data.get("outcomes", [])}
 
 
+def _usd(record: dict[str, object]) -> float:
+    """Pull a cost out of a loaded results record.
+
+    The loader types its values as `object` because it reads whatever JSON the
+    last gate run wrote. Coercing explicitly beats trusting the shape: a missing
+    or malformed `cost_usd` reads as $0 rather than raising halfway through a
+    comparison table.
+    """
+    value = record.get("cost_usd")
+    return float(value) if isinstance(value, int | float) else 0.0
+
+
 def _comparison(outcomes: list[BaselineOutcome], agent: dict[str, dict[str, object]]) -> str:
     header = (
         f"{'issue':<32} {'diff':<7} | {'baseline':<9} {'cost':<8} | "
@@ -219,7 +231,7 @@ def _comparison(outcomes: list[BaselineOutcome], agent: dict[str, dict[str, obje
             f"{o.issue:<32} {o.difficulty:<7} | "
             f"{('PASS' if o.passed else 'FAIL'):<9} ${o.cost_usd:<7.4f} | "
             f"{a_result:<7} {str(a.get('attempts', '-')):<4} "
-            f"${float(a.get('cost_usd', 0) or 0):<7.4f}"
+            f"${_usd(a):<7.4f}"
         )
     return "\n".join(rows)
 
@@ -307,7 +319,7 @@ async def main() -> int:
     a_pass = sum(
         1 for o in outcomes if (a := agent.get(o.issue)) and a.get("solved") and a.get("clean")
     )
-    a_cost = sum(float(agent.get(o.issue, {}).get("cost_usd", 0) or 0) for o in outcomes)
+    a_cost = sum(_usd(agent.get(o.issue, {})) for o in outcomes)
 
     print()
     print(f"baseline (one shot, no tools): {b_pass}/{len(outcomes)} solved, ${b_cost:.4f}")
