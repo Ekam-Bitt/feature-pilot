@@ -84,7 +84,12 @@ def manager() -> StubManager:
 
 @pytest.fixture
 def client(manager: StubManager):  # noqa: ANN201
-    # Bypass lifespan so no real RunManager (and no Docker) is constructed.
+    # A `with TestClient(...)` block *runs* the lifespan, so the real RunManager
+    # is constructed and then replaced. That is safe only because RunManager's
+    # constructor stores settings and nothing else — no Docker client exists until
+    # a run starts. It does mean the lifespan needs `Settings` to be constructible,
+    # which the autouse `_hermetic_env` fixture guarantees; without it this fixture
+    # depends on the developer having a populated `.env`.
     api.app.state.manager = manager
     with TestClient(api.app) as test_client:
         api.app.state.manager = manager

@@ -390,10 +390,17 @@ can't be exercised against a fake `ToolRegistry` and a stub `Retriever`, the
 abstraction is decorative — that constraint *is* the test.
 
 That constraint is also what makes CI cheap: every push runs `ruff check`,
-`ruff format --check`, `mypy src eval` and the 354-test offline suite, with no
-daemon, no datastore and no API key. `mypy` covers the evaluation harness as well as
-the agent, because three of this project's bugs corrupted *scoring* silently —
-a harness that miscounts is worse than no harness.
+`ruff format --check`, `mypy src eval` and the offline suite, with no daemon, no
+datastore and no API key. CI reports **346 passed, 8 skipped** — the 8 need a local
+fixture virtualenv that isn't committed. `mypy` covers the evaluation harness as
+well as the agent, because three of this project's bugs corrupted *scoring*
+silently, and a harness that miscounts is worse than no harness.
+
+The first CI run failed, which was the point of adding it: 24 API tests were
+reading `ANTHROPIC_API_KEY` out of a developer's `.env` without declaring it, so
+they passed on my machine and could not construct their subject on a clean runner.
+An autouse fixture now forces a dummy credential, which also guarantees no test can
+reach a real provider by accident.
 
 ## Status
 
