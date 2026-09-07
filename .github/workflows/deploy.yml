@@ -1,0 +1,87 @@
+# Ships main to the host.
+#
+# The frontend is not here: Vercel's own Git integration deploys `web/` on push
+# and builds a preview for every pull request, which is strictly better than
+# driving its CLI from an Action — no token to store, and a preview URL on the
+# PR itself.
+#
+# This is the other half. The host runs the API under systemd and the
+# datastores under compose, so a deploy is: fetch, hard reset to the commit
+# that was pushed, sync dependencies, restart, and prove it answers.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    # Only what the host actually runs. A README or a workflow change should
+    # not restart a service.
+    paths:
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "docker-compose.yml"
+      - "scripts/init.sql"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one midway: a half-applied deploy
+# leaves the host on a commit nobody chose.
+concurrency:
+  group: deploy-host
+  cancel-in-progress: false
+
+jobs:
+  host:
+    name: api on the oracle host
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+
+    steps:
+      - name: Authorise
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.FP_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Pinned on first contact rather than disabling the check outright:
+          # StrictHostKeyChecking=no would accept anything answering on that
+          # address.
+          ssh-keyscan -H "${{ secrets.FP_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy
+        run: |
+          ssh -o ConnectTimeout=20 "${{ secrets.FP_USER }}@${{ secrets.FP_HOST }}" bash -euo pipefail <<'REMOTE'
+            cd /opt/featurepilot
+            git fetch --quiet origin main
+            # Reset, not pull: the host is a copy of main, not a place where
+            # work happens, and a merge conflict there is not recoverable
+            # unattended.
+            git reset --hard --quiet origin/main
+            /usr/local/bin/uv sync --frozen --quiet
+            sudo systemctl restart featurepilot-api
+          REMOTE
+
+      - name: Prove it answers
+        run: |
+          ssh -o ConnectTimeout=20 "${{ secrets.FP_USER }}@${{ secrets.FP_HOST }}" bash -euo pipefail <<'REMOTE'
+            for attempt in $(seq 1 20); do
+              if curl -sf --max-time 5 http://127.0.0.1:8080/health >/dev/null; then
+                echo "healthy after ${attempt} attempt(s)"
+                exec /usr/local/bin/uv run --directory /opt/featurepilot fpilot doctor
+              fi
+              sleep 3
+            done
+            echo "the API never became healthy; its logs follow" >&2
+            sudo journalctl -u featurepilot-api -n 40 --no-pager >&2
+            exit 1
+          REMOTE
+
+      - name: Report what is live
+        if: always()
+        run: |
+          {
+            echo "### Host"
+            ssh -o ConnectTimeout=20 "${{ secrets.FP_USER }}@${{ secrets.FP_HOST }}" \
+              'echo "commit: $(git -C /opt/featurepilot log --oneline -1)"; echo "api: $(systemctl is-active featurepilot-api)"'
+          } >> "$GITHUB_STEP_SUMMARY"

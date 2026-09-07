@@ -1,0 +1,68 @@
+# Verifies the web app. Separate from ci.yml, and filtered on `web/**`, because
+# the two halves have nothing to say to each other: a change to the retriever
+# should not wait on a Next build, and a change to a component should not wait
+# on a container.
+#
+# Note for whoever adds branch protection: a path-filtered workflow does not
+# run on a push that misses its paths, and a required check that never runs
+# blocks a merge forever. Require these on `web/**` changes only, or make the
+# job run always and skip its steps.
+
+name: web
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/web-ci.yml"]
+  pull_request:
+    paths: ["web/**", ".github/workflows/web-ci.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: web-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  verify:
+    name: types, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # `npm ci` installs devDependencies, playwright among them, whose
+      # postinstall would otherwise pull ~100 MB of browsers that only the
+      # local smoke script uses.
+      - name: Install
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: Types
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      # The reducer is where every ordering case lives — replayed history, a
+      # phase the repair loop revisits, a gate that opens twice.
+      - name: Tests
+        run: npm run test
+
+      # A build failure is the one class the other three miss, and it is what
+      # Vercel would hit.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_FP_API_URL: http://localhost:8080
