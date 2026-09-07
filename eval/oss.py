@@ -23,12 +23,13 @@ Two fairness rules, both easy to get wrong:
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from featurepilot.github import client
 
 #: Where reconstructed repositories are staged. Gitignored.
 #:
@@ -72,21 +73,19 @@ _ISSUE_REF = re.compile(r"(?:closes|fixes|resolves)\s+#(\d+)", re.IGNORECASE)
 
 
 def _git(repo: Path, *args: str) -> str:
-    result = subprocess.run(  # noqa: S603
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
-    )
-    return result.stdout
+    """Tolerant wrapper over the shared client: the harvest loops here treat a
+    failed lookup as absence, not as an error worth stopping a sweep for."""
+    try:
+        return client.run_git(repo, *args)
+    except client.GhError:
+        return ""
 
 
 def _gh_json(*args: str) -> dict[str, object]:
-    result = subprocess.run(  # noqa: S603
-        ["gh", *args], capture_output=True, text=True, check=False
-    )
-    if result.returncode != 0:
-        return {}
+    """Same tolerance for gh: a commit with no PR is data, not a failure."""
     try:
-        parsed = json.loads(result.stdout)
-    except json.JSONDecodeError:
+        parsed = client.gh_json(*args)
+    except client.GhError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 

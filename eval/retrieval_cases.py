@@ -29,7 +29,7 @@ import subprocess
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from eval.oss import WORKTREES, candidate_commits, is_source_file, rank_candidates
+from eval.oss import WORKTREES, _git, candidate_commits, is_source_file, rank_candidates
 
 CASES_FILE = Path(__file__).resolve().parent / "retrieval_cases.json"
 
@@ -51,12 +51,6 @@ class RetrievalCase:
     @property
     def case_dir(self) -> Path:
         return WORKTREES / f"{self.repo.split('/')[-1]}-{self.sha[:9]}"
-
-
-def _git(clone: Path, *args: str) -> str:
-    return subprocess.run(  # noqa: S603
-        ["git", "-C", str(clone), *args], capture_output=True, text=True, check=False
-    ).stdout
 
 
 def _source_files(clone: Path, sha: str, repo: str) -> list[str]:

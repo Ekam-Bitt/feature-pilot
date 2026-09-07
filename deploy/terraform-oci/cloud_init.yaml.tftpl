@@ -1,0 +1,21 @@
+#cloud-config
+# Runs once on first boot, as root. The heavy lifting is in
+# deploy/scripts/provision-vm.sh so that provisioning is identical whether it
+# happens here or by hand on a box that already exists.
+package_update: true
+
+write_files:
+  - path: /var/log/featurepilot-provision.log
+    content: ""
+    permissions: "0644"
+
+runcmd:
+  # FP_RUN_USER is explicit because cloud-init is root: without it the API
+  # would be installed as a root service rather than ubuntu's.
+  - [
+      bash,
+      -lc,
+      "FP_RUN_USER=ubuntu bash -c 'curl -fsSL https://raw.githubusercontent.com/Ekam-Bitt/feature-pilot/${repo_branch}/deploy/scripts/provision-vm.sh | FP_RUN_USER=ubuntu bash -s -- ${repo_url} ${repo_branch}' >> /var/log/featurepilot-provision.log 2>&1",
+    ]
+
+final_message: "featurepilot provisioning finished after $UPTIME seconds"

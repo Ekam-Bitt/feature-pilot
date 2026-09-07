@@ -110,7 +110,15 @@ class MemoryCorpus:
         ]
         out = "\n".join(hits[:2000])
         self.bytes_scanned += len(out)
-        return ToolResult(out or "No matches.", ok=bool(hits))
+        if not hits:
+            # Mirrors filesystem_server.grep, sentinel and all. This used to
+            # return ok=False, which the retriever skips outright — so the
+            # benchmark was structurally unable to see a defect that only
+            # appears when a fruitless grep succeeds. That is the same
+            # offline/production divergence as finding #8, about a different
+            # word: what "no matches" means.
+            return ToolResult(f"No matches for {pattern}.")
+        return ToolResult(out)
 
     async def glob(self, pattern: str) -> ToolResult:
         hits = [p for p in sorted(self.files) if fnmatch.fnmatch(p, pattern)]

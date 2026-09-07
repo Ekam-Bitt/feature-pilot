@@ -12,3 +12,15 @@ build/
 .fp/
 .remember/
 .claude/
+# Terraform: provider binaries and state (state can contain resource detail).
+# The lockfile IS committed — it pins provider versions across machines.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+# OCI CLI credentials, if anyone ever puts them in-tree.
+.oci/
+
+# Never let a local .env backup near a commit again.
+.env.*
+!.env.example

@@ -14,9 +14,11 @@ from fakes import FakeFileSystem
 from featurepilot.retrieval.base import Retriever
 from featurepilot.retrieval.filesystem import (
     FilesystemRetriever,
+    _locate,
     _strip_gutter,
     candidate_terms,
 )
+from featurepilot.tools.registry import ToolResult
 
 
 def real_corpus() -> dict[str, str]:
@@ -164,3 +166,82 @@ class TestGutterStripping:
         """`10  ` inside source is not a gutter; only the two-space gutter form
         should be stripped."""
         assert _strip_gutter("x = 10  # ten") == "x = 10  # ten"
+
+
+class TestTheNoMatchSentinel:
+    """Production's `grep` reports "no matches" in band, as prose, on a
+    *successful* result — `filesystem_server.grep` returns
+    `f"No matches for {pattern}."` without going through `as_error`.
+
+    The retriever trusted `result.ok` and then parsed every line as
+    `path:line:text`. That sentence has no colon, so `_locate` handed back the
+    whole sentence as a path, `_is_searchable` had no reason to object, and a
+    phantom file entered the candidate set — read once (failing), then carried
+    into the ranker's pool. 32 of 194 tool calls in a real database were this,
+    and they were every single failed call in it.
+
+    Nothing caught it because no fake behaved like production: the offline
+    benchmark returns `ok=False` for a no-match, and this suite's fake returned
+    an empty string. Both are kinder than the real thing. This fake is not.
+    """
+
+    class ProductionGrep(FakeFileSystem):
+        """`grep` exactly as the MCP server answers it."""
+
+        async def grep(self, pattern: str) -> ToolResult:
+            found = await super().grep(pattern)
+            if found.content.strip():
+                return found
+            # The line that caused this: a success, carrying prose.
+            return ToolResult(f"No matches for {pattern}.")
+
+    @pytest.fixture
+    def retriever(self) -> FilesystemRetriever:
+        return FilesystemRetriever(self.ProductionGrep(CORPUS).as_registry())
+
+    async def test_prose_is_never_a_candidate_file(self, retriever: FilesystemRetriever) -> None:
+        out = await retriever.retrieve("Fix the WIDGET_SPROCKET_NONSENSE calculation")
+        assert not any(f.startswith("No matches") for f in out.files), out.files
+
+    async def test_prose_is_never_read(self, retriever: FilesystemRetriever) -> None:
+        registry = self.ProductionGrep(CORPUS).as_registry()
+        await FilesystemRetriever(registry).retrieve("Fix the WIDGET_SPROCKET_NONSENSE calculation")
+        read_paths = [
+            str(c.get("args", {}).get("path", ""))
+            for c in registry.calls
+            if c.get("tool") == "read_file"
+        ]
+        assert not any(p.startswith("No matches") for p in read_paths), read_paths
+
+    async def test_a_real_hit_still_retrieves(self, retriever: FilesystemRetriever) -> None:
+        """The guard must not cost the thing that works."""
+        out = await retriever.retrieve("promo_discount stacks the wrong way")
+        assert any("cart.py" in f for f in out.files), out.files
+
+
+class TestHitLineParsing:
+    """`_locate` is the boundary where a grep line becomes a path."""
+
+    def test_parses_a_real_hit(self) -> None:
+        assert _locate("./src/shopsvc/cart.py:42:    def promo_discount(") == (
+            "./src/shopsvc/cart.py",
+            42,
+        )
+
+    def test_keeps_a_path_whose_line_number_is_unparseable(self) -> None:
+        """Deliberate existing behaviour: losing the line means read the whole
+        file, not discard the file."""
+        assert _locate("./src/shopsvc/cart.py:notanumber:text") == (
+            "./src/shopsvc/cart.py",
+            None,
+        )
+
+    def test_rejects_a_line_with_no_separator(self) -> None:
+        assert _locate("No matches for ^[ \\t]*(def|class)[ \\t]+Orders.") == (None, None)
+
+    def test_rejects_a_path_containing_whitespace(self) -> None:
+        """`grep -rnE` never emits one, and prose always does."""
+        assert _locate("No matches for foo:1:bar") == (None, None)
+
+    def test_rejects_an_empty_line(self) -> None:
+        assert _locate("") == (None, None)

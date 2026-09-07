@@ -1,7 +1,7 @@
 # Feature Pilot
 
 [![CI](https://github.com/Ekam-Bitt/feature-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Ekam-Bitt/feature-pilot/actions/workflows/ci.yml)
-![tests](https://img.shields.io/badge/tests-358%20offline%20%2B%2028%20gated-brightgreen)
+![tests](https://img.shields.io/badge/tests-436%20offline%20%2B%2030%20gated-brightgreen)
 ![python](https://img.shields.io/badge/python-3.13-blue)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -12,13 +12,15 @@
 **[Evaluation](#evaluation-methodology)** ·
 **[Quickstart](#quickstart)**
 
-An autonomous software-engineering agent. Point it at a repository and an issue;
-it explores the codebase, writes a plan for you to approve, edits code in an
-isolated container, runs the test suite, repairs its own failures, and hands back
-a diff with a PR summary.
+An autonomous software-engineering agent. Give it a public GitHub issue URL;
+it clones the repository, explores the codebase, writes a plan for you to
+approve, edits code in an isolated container, runs the test suite, repairs its
+own failures, and — once you approve a second time — forks, pushes, and opens
+the pull request.
 
 ```
-Issue → Retrieve → Plan → [your approval] → Code → Test → ⟲ Debug → Review → PR summary
+Issue URL → Clone → Retrieve → Plan → [your approval] → Code → Test → ⟲ Debug
+          → Review → PR summary → [your approval] → Fork → Push → Pull request
 ```
 
 Built on LangGraph, with tools discovered dynamically over MCP and all execution
@@ -65,7 +67,7 @@ rather than the way it was planned.
 | Correctness driver | **Ranking, not recall.** The right file was already in the candidate set in 6/6 cases |
 | Cost finding | Better retrieval bought correctness and **not** cost — $1.219 to pass vs $1.226 to fail |
 | Toy fixture | 5/5 solved — and a one-shot prompt with no tools, tests or repair loop tied it at 40% of the cost |
-| Tests | 358 offline (no Docker, no datastore, no API key) + 28 gated behind real infrastructure |
+| Tests | 436 offline (no Docker, no datastore, no API key) + 30 gated behind real infrastructure |
 | Total spend | **$8.43**, of which $3.77 bought four failed runs and one lesson about instruments |
 
 ## The findings in one line each
@@ -316,7 +318,8 @@ fix. Both are reported per case so results can be segmented instead of averaged.
 
 - Docker (datastores + the per-run sandbox)
 - Python 3.13, via [`uv`](https://docs.astral.sh/uv/)
-- An Anthropic API key
+- An Anthropic API key — or AWS credentials, to run on Bedrock instead
+- [`gh`](https://cli.github.com), authenticated — only to publish pull requests
 
 ## Quickstart
 
@@ -327,6 +330,50 @@ uv sync
 uv run fpilot doctor      # check everything is reachable
 uv run fpilot solve --issue fixtures/issues/01-off-by-one.md
 ```
+
+### Solving a real issue and opening the PR
+
+```bash
+uv run fpilot solve https://github.com/<owner>/<repo>/issues/<n> --push --draft
+```
+
+The repository is shallow-cloned to `.fp/clones/<run_id>/`, solved, and — after
+the plan gate and a second gate that shows the exact branch, title, and body —
+published. Publishing forks the upstream repository, force-pushes
+`feature-pilot/issue-<n>-<slug>`, and opens a cross-repo PR; when you already
+own the repository there is nothing to fork, so the branch goes straight there.
+Re-publishing the same issue updates that one PR rather than opening another.
+
+`--push` implies nothing on its own: without it, the run stops at a diff and a
+summary, exactly as before. `--yes` skips both gates for unattended runs, and
+`--draft` opens the PR as a draft.
+
+The same flow over HTTP, where the publish request *is* the approval:
+
+```bash
+curl -XPOST localhost:8080/runs -H 'content-type: application/json' \
+  -d '{"issue_url":"https://github.com/<owner>/<repo>/issues/<n>"}'
+# ... watch /runs/{id}/stream until it reports DONE, then:
+curl -XPOST localhost:8080/runs/{id}/publish -d '{"draft":true}' \
+  -H 'content-type: application/json'
+```
+
+`GITHUB_TOKEN` is used when set; otherwise `gh`'s own credential is.
+
+### Running the models on AWS Bedrock
+
+```bash
+uv sync --extra aws
+FP_MODEL_CODER=bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0 uv run fpilot doctor
+```
+
+Point any `FP_MODEL_*` setting at a `bedrock/...` inference profile. Credentials
+come from boto3's chain — environment, `~/.aws`, or an EC2 instance role — so a
+fully-Bedrock configuration needs no `ANTHROPIC_API_KEY` at all. Cost accounting
+works unchanged: LiteLLM prices the profile ids from its local map. See
+`.env.example` for a complete Bedrock block, and
+[deploy/README.md](deploy/README.md) to run the whole thing on EC2 with an
+instance role and no keys on the host.
 
 `ANTHROPIC_API_KEY` is the only value you must set. Everything else has a working
 local default — embeddings run offline, tracing is a no-op without a LangSmith key,
@@ -380,10 +427,11 @@ curl -fsSL https://cli.langsmith.com/install.sh | sh
 ## Tests
 
 ```bash
-uv run pytest              # 358 tests: seams + units. No Docker, no datastore, no API calls
+uv run pytest              # 436 tests: seams + units. No Docker, no datastore, no API calls
 uv run pytest -m docker    # 26 tests: real container, real MCP servers
 uv run pytest -m postgres  # 2 tests: checkpoint round-trip against the compose Postgres
 uv run pytest -m llm       # real model calls (costs tokens)
+uv run pytest -m github    # real GitHub: opens a draft PR on the fixture repo, then closes it
 ```
 
 The default suite deliberately runs without Docker or a live MCP server. If a node

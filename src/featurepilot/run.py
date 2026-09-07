@@ -76,6 +76,9 @@ class RunHandle:
     #: checkpointer: the exit stack unwinds LIFO, so by teardown time the
     #: checkpointer connection is already closed and any query fails.
     last_phase: RunPhase | None = None
+    #: The tree the sandbox copy was taken from. Publishing applies the final
+    #: diff here — the container is already gone by then, this path is not.
+    repo_path: Path | None = None
 
     @property
     def config(self) -> dict[str, Any]:
@@ -213,6 +216,7 @@ async def open_run(
             sink=memory,
             baseline_failures=baseline,
             baseline_total=baseline_total,
+            repo_path=repo_path,
         )
         yield handle
 

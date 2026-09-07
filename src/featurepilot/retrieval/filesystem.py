@@ -248,17 +248,32 @@ MERGE_GAP = 20
 
 
 def _locate(line: str) -> tuple[str | None, int | None]:
-    """Split a grep hit into (path, line number).
+    """Split a grep hit into (path, line number), or nothing if it is not one.
 
     grep emits `path:line:text`. A Windows drive letter is not a concern inside a
     Linux container, so the first two colons are the separators.
+
+    The shape is checked rather than assumed, because not every line of a
+    *successful* grep is a hit: the filesystem server answers a fruitless
+    search with prose — `No matches for <pattern>.` — and does not route it
+    through `as_error`, so `result.ok` stays true. Taking that sentence apart
+    as a path made the whole sentence a candidate file, which was then read
+    (failing) and carried into the ranker's pool. In one database it accounted
+    for 32 of 194 tool calls and for every failed call in it.
+
+    Two things distinguish a hit: it has the separator at all, and its path has
+    no whitespace, which `grep -rnE` guarantees and prose never satisfies.
     """
-    head, _, rest = line.partition(":")
-    path = head.strip() or None
+    head, separator, rest = line.partition(":")
+    path = head.strip()
+    if not separator or not path or any(char.isspace() for char in path):
+        return None, None
     number, _, _ = rest.partition(":")
     try:
         return path, int(number)
     except ValueError:
+        # A path with an unreadable line number is still a path: losing the
+        # location means read the whole file, not discard the file.
         return path, None
 
 

@@ -134,12 +134,20 @@ def configure_tracing(settings: Settings) -> bool:
 
 
 def _export_provider_keys(settings: Settings) -> None:
-    """LiteLLM reads provider credentials from the environment. Export from
-    Settings so there is exactly one source of truth (.env via pydantic) rather
-    than two ways to configure a key.
+    """Export the non-secret provider settings LiteLLM only reads from the
+    environment.
+
+    Secrets are not exported. They ride the model instance instead, because a
+    run's credentials must not be visible to another run in the same process.
     """
-    if settings.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
-        os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key.get_secret_value()
+    # The Anthropic key is deliberately *not* exported: it travels on the model
+    # instance (see chat_model) so that per-run credentials cannot collide.
+    # Bedrock credentials come from boto3's own chain (env, ~/.aws, instance
+    # role); the region is the one thing LiteLLM still needs told, and a region
+    # is not a secret, so process-wide is fine for it.
+    uses_bedrock = any(m.startswith("bedrock/") for m in settings._configured_models())
+    if uses_bedrock and not os.environ.get("AWS_REGION"):
+        os.environ["AWS_REGION"] = settings.aws_region
 
 
 def chat_model(
@@ -162,6 +170,15 @@ def chat_model(
     model = settings.model_escalation if escalate else settings.model_for(role)
     return ChatLiteLLM(
         model=model,
+        # Per instance, not per process. A visitor's key belongs to their run
+        # alone: with credentials in `os.environ`, two concurrent runs race and
+        # whichever writes last bills both. Bedrock is unaffected — boto3's
+        # chain has no secret for this project to pass.
+        api_key=(
+            settings.anthropic_api_key.get_secret_value()
+            if settings.anthropic_api_key and not model.startswith("bedrock/")
+            else None
+        ),
         max_tokens=max_tokens or settings.max_tokens_per_call,
         # An explicit deadline and retry count. Without them a large request can
         # hang until some library default fires — observed on click: 817 seconds

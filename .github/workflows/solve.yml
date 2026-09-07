@@ -1,0 +1,131 @@
+# Solve a public GitHub issue and open a pull request, on a runner.
+#
+# This is the project's cheapest deployment, and it fits the workload's actual
+# shape: a run is a batch job — clone, solve, publish, exit — not a service.
+# A standard Ubuntu runner already has everything the agent needs, including
+# the one thing managed PaaS platforms cannot offer: a real Docker daemon, for
+# the per-run sandbox (featurepilot.sandbox.runner drives the Docker API
+# directly, so Render/Railway/Cloud Run cannot host this at any price).
+# Standard runners are free and unlimited on public repositories.
+#
+# Datastores come from docker-compose.yml rather than `services:` here, so this
+# workflow and a laptop bring up byte-identical Postgres and Redis — including
+# scripts/init.sql, which a service container cannot mount.
+
+name: Solve issue
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_url:
+        description: "Public GitHub issue URL, e.g. https://github.com/owner/repo/issues/123"
+        required: true
+        type: string
+      publish:
+        description: "Fork, push, and open a pull request when the run succeeds"
+        type: boolean
+        default: true
+      draft:
+        description: "Open the pull request as a draft"
+        type: boolean
+        default: true
+      verbose:
+        description: "Library-level logging"
+        type: boolean
+        default: false
+
+# Two dispatches for the same issue would race for the same branch name, and
+# the loser's force-push would silently win. One at a time, per issue.
+concurrency:
+  group: solve-${{ inputs.issue_url }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  solve:
+    name: ${{ inputs.issue_url }}
+    runs-on: ubuntu-latest
+    # A repair loop with three attempts against a large repository is slow, and
+    # a run that overshoots this has gone wrong in a way more time won't fix.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned exactly: setup-uv publishes no moving `v9` tag, only `v9.0.0`.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Start datastores
+        run: |
+          docker compose up -d --wait
+          docker compose ps
+
+      # Fails loudly here, before any tokens are spent, if the runner is not
+      # actually able to do the job.
+      - name: Check readiness
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.FP_GITHUB_TOKEN }}
+        run: uv run fpilot doctor
+
+      # --yes is mandatory, not a convenience: there is no terminal here, so
+      # the CLI refuses to publish without it and stops (exit 2) if the planner
+      # parks on open questions. The draft PR is the review artifact instead of
+      # an interactive gate.
+      - name: Solve
+        id: solve
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # A PAT, not the job's own GITHUB_TOKEN: forking on your behalf and
+          # pushing to that fork are outside what the default token can do.
+          GITHUB_TOKEN: ${{ secrets.FP_GITHUB_TOKEN }}
+        run: |
+          uv run fpilot solve "${{ inputs.issue_url }}" \
+            --yes \
+            ${{ inputs.publish && '--push' || '' }} \
+            ${{ inputs.draft && '--draft' || '' }} \
+            ${{ inputs.verbose && '--verbose' || '' }}
+
+      # Runs even on failure: a failed run's diff and metrics are exactly what
+      # you want to read afterwards.
+      - name: Collect run artifacts
+        if: always()
+        run: |
+          {
+            echo "### Run artifacts"
+            for dir in .fp/runs/*/; do
+              [ -d "$dir" ] || continue
+              echo ""
+              echo "\`$dir\`"
+              ls -1 "$dir" | sed 's/^/  - /'
+              if [ -f "$dir/pr_url.txt" ]; then
+                echo ""
+                echo "**Pull request:** $(cat "$dir/pr_url.txt")"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: run-artifacts
+          path: .fp/runs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Datastore logs on failure
+        if: failure()
+        run: docker compose logs --tail 50

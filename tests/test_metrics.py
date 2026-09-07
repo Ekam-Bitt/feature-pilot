@@ -143,3 +143,74 @@ class TestRunSummary:
         assert payload["outcome"] == "success"
         assert payload["input_tokens"] == 100
         assert payload["nonexistent_ref_rate"] == 0.25
+
+
+class TestBedrockPricing:
+    """Cost accounting rides litellm's local pricing map; these ids must stay
+    resolvable offline or every Bedrock run silently records $0.00."""
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        ],
+    )
+    def test_bedrock_profile_ids_have_prices(self, model: str) -> None:
+        import litellm
+
+        prompt_cost, completion_cost = litellm.cost_per_token(
+            model=model, prompt_tokens=1000, completion_tokens=100
+        )
+        assert prompt_cost > 0
+        assert completion_cost > 0
+
+
+class TestParkingIsNotFailing:
+    """LangGraph's `interrupt()` parks a run by raising GraphInterrupt through
+    the node it was called from. Recording that as a node failure is wrong in
+    two visible ways: the run view drew "approval failed — GraphInterrupt" in
+    red at the exact moment the agent was politely asking a question, and
+    `node_metrics.ok` said false for every approval gate, so any analysis of
+    node failure rates counted human review as breakage.
+    """
+
+    async def test_a_graph_interrupt_ends_the_node_ok(self) -> None:
+        from langgraph.errors import GraphInterrupt
+
+        from featurepilot.metrics.events import EventKind, InMemorySink
+        from featurepilot.metrics.recorder import MetricsRecorder
+
+        sink = InMemorySink()
+        recorder = MetricsRecorder(
+            run_id="r1",
+            sink=sink,
+            settings=Settings(_env_file=None),  # type: ignore[call-arg]
+        )
+
+        with pytest.raises(GraphInterrupt):
+            async with recorder.node("approval", RunPhase.WAITING_APPROVAL):
+                raise GraphInterrupt(())
+
+        [ended] = [e for e in sink.events if e.kind is EventKind.NODE_ENDED]
+        assert ended.payload["ok"] is True
+        assert ended.payload["error"] is None
+
+    async def test_a_real_failure_still_reports_itself(self) -> None:
+        from featurepilot.metrics.events import EventKind, InMemorySink
+        from featurepilot.metrics.recorder import MetricsRecorder
+
+        sink = InMemorySink()
+        recorder = MetricsRecorder(
+            run_id="r1",
+            sink=sink,
+            settings=Settings(_env_file=None),  # type: ignore[call-arg]
+        )
+
+        with pytest.raises(RuntimeError):
+            async with recorder.node("code", RunPhase.CODING):
+                raise RuntimeError("the sandbox died")
+
+        [ended] = [e for e in sink.events if e.kind is EventKind.NODE_ENDED]
+        assert ended.payload["ok"] is False
+        assert "the sandbox died" in str(ended.payload["error"])

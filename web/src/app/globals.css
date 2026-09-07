@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+/**
+ * Editorial light.
+ *
+ * Warm paper rather than white, near-black rather than black, and one
+ * restrained accent. The content is dense, mechanical and fast-moving — tool
+ * calls, diffs, test output — and dense monospace is markedly easier to read
+ * against calm paper than against another dark surface competing for
+ * attention.
+ *
+ * The scaffold's prefers-color-scheme block is gone deliberately. An automatic
+ * flip is not a dark mode: it would invert the paper this design is built on
+ * and leave every ink and rule value unconsidered. Committing to one look is
+ * the honest choice until a dark palette is actually designed.
+ */
+
+:root {
+  color-scheme: light;
+
+  --paper: #fbfaf8;
+  --paper-sunk: #f4f2ee;
+  --ink: #16150f;
+  --ink-secondary: #4a473d;
+  --ink-muted: #837f72;
+  --rule: #e2ded4;
+  --rule-strong: #cdc7b8;
+
+  /* One accent, used for the live phase and nothing decorative. */
+  --accent: #8a4b1f;
+  --accent-sunk: #f3e9df;
+  --good: #3f6212;
+  --bad: #9f1239;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-sunk: var(--paper-sunk);
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-accent: var(--accent);
+  --color-accent-sunk: var(--accent-sunk);
+  --color-good: var(--good);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-sans-stack);
+  --font-mono: var(--font-mono-stack);
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans-stack);
+}
+
+/* A run's feed grows downward; keep it from yanking the page around. */
+@media (prefers-reduced-motion: no-preference) {
+  .feed-enter {
+    animation: feed-in 220ms ease-out;
+  }
+}
+
+@keyframes feed-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The live-phase pulse. Reduced-motion readers get the accent alone. */
+@media (prefers-reduced-motion: no-preference) {
+  .pulse {
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}

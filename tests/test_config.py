@@ -88,3 +88,69 @@ def test_the_error_message_names_the_variable_people_set(
     with pytest.raises(ValueError, match=r"\bANTHROPIC_API_KEY\b") as exc:
         Settings(_env_file=None)  # type: ignore[call-arg]
     assert "FP_ANTHROPIC_API_KEY is unset" not in str(exc.value)
+
+
+class TestGitHubToken:
+    """The publish path reads the same variable the gh CLI does."""
+
+    def test_reads_conventional_github_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_abc")
+        settings = Settings(_env_file=None)  # type: ignore[call-arg]
+        assert settings.github_token is not None
+        assert settings.github_token.get_secret_value() == "ghp_abc"
+
+    def test_absent_token_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        assert Settings(_env_file=None).github_token is None  # type: ignore[call-arg]
+
+
+class TestBedrockProvider:
+    """bedrock/* models authenticate via boto3's chain (env, ~/.aws, instance
+    role) — no static key to check, but the SDK itself must be installed."""
+
+    BEDROCK = "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+    def test_all_bedrock_needs_no_anthropic_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for name in ("ANTHROPIC_API_KEY", "GITHUB_TOKEN"):
+            monkeypatch.delenv(name, raising=False)
+        fields = {f"model_{r}": self.BEDROCK for r in Role}
+        settings = Settings(model_escalation=self.BEDROCK, _env_file=None, **fields)  # type: ignore[call-arg]
+        assert settings.model_for(Role.CODER) == self.BEDROCK
+
+    def test_bedrock_without_boto3_names_the_fix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import featurepilot.config as config_module
+
+        monkeypatch.setattr(config_module, "_boto3_available", lambda: False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+        with pytest.raises(ValueError, match="uv sync --extra aws"):
+            Settings(model_coder=self.BEDROCK, _env_file=None)  # type: ignore[call-arg]
+
+    def test_aws_region_uses_the_conventional_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+        monkeypatch.setenv("AWS_REGION", "us-west-2")
+        assert Settings(_env_file=None).aws_region == "us-west-2"  # type: ignore[call-arg]
+
+
+class TestEmptySecretsAreAbsent:
+    """CI passes unset secrets as empty strings, not as missing variables.
+    `SecretStr("")` is a truthy object, so without coercion every "is a token
+    configured?" check reads true and reports a credential that isn't there."""
+
+    def test_empty_github_token_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+        monkeypatch.setenv("GITHUB_TOKEN", "")
+        assert Settings(_env_file=None).github_token is None  # type: ignore[call-arg]
+
+    def test_empty_anthropic_key_is_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+        monkeypatch.setenv("FP_MODEL_CODER", "ollama/qwen2.5-coder")
+        monkeypatch.setenv("FP_MODEL_ROUTER", "ollama/qwen2.5-coder")
+        monkeypatch.setenv("FP_MODEL_PLANNER", "ollama/qwen2.5-coder")
+        monkeypatch.setenv("FP_MODEL_CRITIC", "ollama/qwen2.5-coder")
+        monkeypatch.setenv("FP_MODEL_DEBUGGER", "ollama/qwen2.5-coder")
+        monkeypatch.setenv("FP_MODEL_REVIEWER", "ollama/qwen2.5-coder")
+        monkeypatch.setenv("FP_MODEL_SUMMARIZER", "ollama/qwen2.5-coder")
+        monkeypatch.setenv("FP_MODEL_ESCALATION", "ollama/qwen2.5-coder")
+        assert Settings(_env_file=None).anthropic_api_key is None  # type: ignore[call-arg]

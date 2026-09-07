@@ -7,11 +7,12 @@ local fallback, so nothing here may be `Field(...)`-required except that one.
 
 from __future__ import annotations
 
+import importlib.util
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -35,7 +36,13 @@ STANDARD_ENV_NAMES: dict[str, str] = {
     "langsmith_workspace_id": "LANGSMITH_WORKSPACE_ID",
     "postgres_dsn": "DATABASE_URL",
     "redis_url": "REDIS_URL",
+    "github_token": "GITHUB_TOKEN",
+    "aws_region": "AWS_REGION",
 }
+
+
+def _boto3_available() -> bool:
+    return importlib.util.find_spec("boto3") is not None
 
 
 def env_alias(field_name: str) -> str:
@@ -140,6 +147,12 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 8
     retrieval_fusion_pool: int = 40
 
+    # Publishing PRs. Absent => gh's ambient `gh auth` credential is used.
+    github_token: SecretStr | None = None
+
+    # Only read when a model is bedrock/*; LiteLLM hands it to boto3.
+    aws_region: str = "us-east-1"
+
     # Absent VOYAGE key => local fastembed. Keeps the repo free and offline.
     voyage_api_key: SecretStr | None = None
     embed_model_local: str = "BAAI/bge-small-en-v1.5"
@@ -156,6 +169,50 @@ class Settings(BaseSettings):
     # --- api --------------------------------------------------------------
     api_host: str = "127.0.0.1"
     api_port: int = 8080
+    #: Origins the browser frontend is served from. Comma-separated in the
+    #: environment. Defaults to the local dev servers only — Next's 3000 and
+    #: Vite's 5173 — because a public deployment names its own origin rather
+    #: than inheriting a permissive default.
+    api_cors_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+    )
+    #: Each concurrent run holds a sandbox container of `sandbox_memory`, so
+    #: this is a memory ceiling, not a preference. Runs past it queue.
+    max_concurrent_runs: int = 2
+    #: Rejected outright past this many waiting, so a queue cannot grow
+    #: unboundedly while every visitor watches a stalled placeholder.
+    max_queued_runs: int = 8
+    #: A publicly reachable deployment sets this false: a run against a server
+    #: path would carry that path's contents back out through the retrieval
+    #: context and the diff. The CLI and local development leave it on.
+    allow_local_repos: bool = True
+    #: Ceiling on what runs using *this server's* credentials may spend per
+    #: day. A visitor who supplies their own key is spending their own money
+    #: and is not counted against it.
+    max_usd_per_day: float = 5.00
+
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]
+
+    @field_validator(
+        "anthropic_api_key",
+        "voyage_api_key",
+        "langsmith_api_key",
+        "github_token",
+        mode="before",
+    )
+    @classmethod
+    def _empty_secret_is_absent(cls, value: object) -> object:
+        """An unset CI secret arrives as "", not as a missing variable.
+
+        `SecretStr("")` is a truthy object, so every "is this configured?"
+        check would read true and the run would report a credential it does
+        not have — then fail deep inside a provider call instead of at
+        `doctor`.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def _require_a_usable_provider(self) -> Settings:
@@ -170,6 +227,14 @@ class Settings(BaseSettings):
                 "ANTHROPIC_API_KEY is unset but these roles use hosted Anthropic "
                 f"models: {sorted(set(hosted))}. Either set the key, or point the "
                 "FP_MODEL_* settings at a local provider (e.g. ollama/qwen2.5-coder)."
+            )
+        # Bedrock has no static key to check — boto3's credential chain covers
+        # env vars, ~/.aws, and EC2 instance roles — but the SDK must exist.
+        bedrock = [m for m in self._configured_models() if m.startswith("bedrock/")]
+        if bedrock and not _boto3_available():
+            raise ValueError(
+                f"these roles use Bedrock models but boto3 is not installed: "
+                f"{sorted(set(bedrock))}. Install it with `uv sync --extra aws`."
             )
         return self
 
