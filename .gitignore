@@ -20,3 +20,7 @@ build/
 *.tfvars
 # OCI CLI credentials, if anyone ever puts them in-tree.
 .oci/
+
+# Never let a local .env backup near a commit again.
+.env.*
+!.env.example
