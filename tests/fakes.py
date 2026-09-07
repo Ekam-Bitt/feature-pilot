@@ -68,6 +68,13 @@ class FakeFileSystem:
             for i, line in enumerate(body.splitlines())
             if rx.search(line)
         ]
+        if not hits:
+            # Verbatim from filesystem_server.grep, including that it is a
+            # *success*: finding nothing is not an error. Returning "" here
+            # instead — which this fake used to do — is kinder than production,
+            # and a fake kinder than production hides exactly the bug where
+            # prose on a successful result gets parsed as a file path.
+            return ToolResult(f"No matches for {pattern}.")
         return ToolResult("\n".join(hits))
 
     def as_registry(self) -> ToolRegistry:

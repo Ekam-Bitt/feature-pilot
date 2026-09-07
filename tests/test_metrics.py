@@ -183,7 +183,9 @@ class TestParkingIsNotFailing:
 
         sink = InMemorySink()
         recorder = MetricsRecorder(
-            run_id="r1", sink=sink, settings=Settings(_env_file=None)  # type: ignore[call-arg]
+            run_id="r1",
+            sink=sink,
+            settings=Settings(_env_file=None),  # type: ignore[call-arg]
         )
 
         with pytest.raises(GraphInterrupt):
@@ -200,7 +202,9 @@ class TestParkingIsNotFailing:
 
         sink = InMemorySink()
         recorder = MetricsRecorder(
-            run_id="r1", sink=sink, settings=Settings(_env_file=None)  # type: ignore[call-arg]
+            run_id="r1",
+            sink=sink,
+            settings=Settings(_env_file=None),  # type: ignore[call-arg]
         )
 
         with pytest.raises(RuntimeError):

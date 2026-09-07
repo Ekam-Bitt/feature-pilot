@@ -391,8 +391,8 @@
     "mrr": 0.5417,
     "avg_context_bytes": 120988,
     "avg_files": 6.0,
-    "avg_effort": 42.67,
-    "avg_bytes_scanned": 917835,
+    "avg_effort": 44.17,
+    "avg_bytes_scanned": 917843,
     "cases": [
       {
         "case": "93ba0075f",
