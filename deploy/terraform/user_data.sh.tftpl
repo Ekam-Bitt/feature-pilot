@@ -1,0 +1,90 @@
+#!/bin/bash
+# Provisions the host on first boot. Failures here are silent from the outside;
+# read /var/log/cloud-init-output.log on the box when something is missing.
+set -xeuo pipefail
+
+dnf update -y
+dnf install -y docker git
+
+# gh ships in its own repo on AL2023; the publish path needs it.
+dnf install -y dnf-command\(config-manager\) || true
+dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+dnf install -y gh
+
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+# compose v2 as a docker plugin (arm64 build to match the instance).
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+  https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# uv, installed system-wide so the systemd unit and ec2-user share one binary.
+export UV_INSTALL_DIR=/usr/local/bin
+curl -fsSL https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
+git clone ${repo_url} /opt/featurepilot
+cd /opt/featurepilot
+
+# Secrets come from SSM at boot, so `terraform destroy` never takes them with
+# it and no secret is ever written to terraform state.
+fetch() {
+  aws ssm get-parameter --with-decryption --region ${region} \
+    --name "${ssm_prefix}/$1" --query Parameter.Value --output text 2>/dev/null || true
+}
+
+SONNET="bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+HAIKU="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+{
+  echo "# Written by user-data from SSM ${ssm_prefix}/*. Do not edit by hand."
+  echo "AWS_REGION=${region}"
+  # Bedrock by default: credentials come from the instance role, so no model
+  # API key needs to exist on this host at all.
+  echo "FP_MODEL_ROUTER=$HAIKU"
+  echo "FP_MODEL_PLANNER=$SONNET"
+  echo "FP_MODEL_CODER=$SONNET"
+  echo "FP_MODEL_CRITIC=$SONNET"
+  echo "FP_MODEL_DEBUGGER=$SONNET"
+  echo "FP_MODEL_REVIEWER=$SONNET"
+  echo "FP_MODEL_SUMMARIZER=$HAIKU"
+  echo "FP_MODEL_ESCALATION=$SONNET"
+  # API stays on loopback: it has no auth, so access is via `ssh -L`.
+  echo "FP_API_HOST=127.0.0.1"
+
+  token=$(fetch github_token)
+  [ -n "$token" ] && echo "GITHUB_TOKEN=$token"
+  key=$(fetch anthropic_api_key)
+  [ -n "$key" ] && echo "ANTHROPIC_API_KEY=$key"
+} > /opt/featurepilot/.env
+
+chown -R ec2-user:ec2-user /opt/featurepilot
+
+sudo -u ec2-user env UV_PROJECT_ENVIRONMENT=/opt/featurepilot/.venv \
+  /usr/local/bin/uv sync --extra aws --directory /opt/featurepilot
+
+# Datastores only; sandboxes are created per-run against the host daemon.
+sudo -u ec2-user docker compose -f /opt/featurepilot/docker-compose.yml up -d
+
+cat > /etc/systemd/system/featurepilot-api.service <<'UNIT'
+[Unit]
+Description=Feature Pilot API
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/featurepilot
+EnvironmentFile=/opt/featurepilot/.env
+ExecStart=/usr/local/bin/uv run fpilot serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now featurepilot-api

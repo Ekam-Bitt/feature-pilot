@@ -12,3 +12,9 @@ build/
 .fp/
 .remember/
 .claude/
+# Terraform: provider binaries and state (state can contain resource detail).
+# The lockfile IS committed — it pins provider versions across machines.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
