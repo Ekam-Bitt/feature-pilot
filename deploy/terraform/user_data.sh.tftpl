@@ -24,7 +24,7 @@ chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 export UV_INSTALL_DIR=/usr/local/bin
 curl -fsSL https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-git clone ${repo_url} /opt/featurepilot
+git clone --branch ${repo_branch} ${repo_url} /opt/featurepilot
 cd /opt/featurepilot
 
 # Secrets come from SSM at boot, so `terraform destroy` never takes them with
@@ -40,8 +40,9 @@ HAIKU="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
 {
   echo "# Written by user-data from SSM ${ssm_prefix}/*. Do not edit by hand."
   echo "AWS_REGION=${region}"
-  # Bedrock by default: credentials come from the instance role, so no model
-  # API key needs to exist on this host at all.
+%{ if use_bedrock ~}
+  # Bedrock: credentials come from the instance role, so no model API key
+  # needs to exist on this host at all.
   echo "FP_MODEL_ROUTER=$HAIKU"
   echo "FP_MODEL_PLANNER=$SONNET"
   echo "FP_MODEL_CODER=$SONNET"
@@ -50,6 +51,7 @@ HAIKU="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
   echo "FP_MODEL_REVIEWER=$SONNET"
   echo "FP_MODEL_SUMMARIZER=$HAIKU"
   echo "FP_MODEL_ESCALATION=$SONNET"
+%{ endif ~}
   # API stays on loopback: it has no auth, so access is via `ssh -L`.
   echo "FP_API_HOST=127.0.0.1"
 

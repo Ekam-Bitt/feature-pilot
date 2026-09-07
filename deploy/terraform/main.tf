@@ -122,9 +122,11 @@ resource "aws_instance" "featurepilot" {
   vpc_security_group_ids = [aws_security_group.featurepilot.id]
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    repo_url   = var.repo_url
-    region     = var.region
-    ssm_prefix = var.ssm_prefix
+    repo_url    = var.repo_url
+    repo_branch = var.repo_branch
+    region      = var.region
+    ssm_prefix  = var.ssm_prefix
+    use_bedrock = var.use_bedrock
   })
   # Re-running user-data means recreating the instance; that is the intent —
   # provisioning is meant to be reproducible, not patched in place.

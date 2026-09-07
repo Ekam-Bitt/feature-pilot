@@ -35,6 +35,12 @@ variable "repo_url" {
   default     = "https://github.com/Ekam-Bitt/feature-pilot.git"
 }
 
+variable "repo_branch" {
+  description = "Branch to deploy. The default branch is not always the one being tested."
+  type        = string
+  default     = "main"
+}
+
 variable "volume_size_gb" {
   description = "Root EBS size. This is the one cost that accrues while stopped (~$0.08/GB-mo)."
   type        = number
@@ -45,4 +51,15 @@ variable "ssm_prefix" {
   description = "SSM Parameter Store prefix holding secrets. Created out-of-band, never in state."
   type        = string
   default     = "/featurepilot"
+}
+
+variable "use_bedrock" {
+  description = <<-EOT
+    Route the models through Bedrock using the instance role, so no model key
+    is needed on the host. Requires Bedrock model access to be granted on the
+    account (the Anthropic use-case form, plus a valid payment instrument).
+    When false, the host uses ANTHROPIC_API_KEY from SSM instead.
+  EOT
+  type        = bool
+  default     = false
 }
