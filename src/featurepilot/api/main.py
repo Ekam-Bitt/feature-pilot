@@ -161,6 +161,8 @@ def _running_commit() -> str | None:
 async def health() -> dict[str, str | None]:
     """Liveness, and what is live.
 
+    The commit below is what the automatic deploy is verified against.
+
     The commit is here because deployment is pull-based — the host watches main
     and updates itself, since SSH is open to one address and a CI runner is
     never at it. This endpoint is the only thing CI can reach, so it is how a
