@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import logging
 import os
+import subprocess
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -135,9 +137,36 @@ def _manager() -> RunManager:
     return app.state.manager  # type: ignore[no-any-return]
 
 
+@functools.cache
+def _running_commit() -> str | None:
+    """The commit this process is running, or None outside a checkout.
+
+    Read once: it cannot change without a restart, and a subprocess per health
+    check would be absurd.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None if result.returncode == 0 else None
+
+
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, str | None]:
+    """Liveness, and what is live.
+
+    The commit is here because deployment is pull-based — the host watches main
+    and updates itself, since SSH is open to one address and a CI runner is
+    never at it. This endpoint is the only thing CI can reach, so it is how a
+    deploy is confirmed to have landed.
+    """
+    return {"status": "ok", "commit": _running_commit()}
 
 
 def _read_issue(issue_path: str, issue_ref: str) -> tuple[str, str]:

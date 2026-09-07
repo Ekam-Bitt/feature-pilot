@@ -157,6 +157,39 @@ UNIT
 sudo systemctl daemon-reload
 sudo systemctl enable featurepilot-api
 
+# --- self-deploy ------------------------------------------------------------
+# The host watches main and updates itself. Pull, not push: its SSH is open to
+# one address and a CI runner is never at it, and opening 22 to the internet so
+# a runner could reach in would trade real exposure for a status badge.
+log "installing the self-deploy timer"
+sudo tee /etc/systemd/system/featurepilot-deploy.service >/dev/null <<UNIT
+[Unit]
+Description=Bring Feature Pilot to whatever main points at
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=$RUN_USER
+WorkingDirectory=$TARGET
+ExecStart=$TARGET/deploy/scripts/self-deploy.sh
+UNIT
+
+sudo tee /etc/systemd/system/featurepilot-deploy.timer >/dev/null <<UNIT
+[Unit]
+Description=Check main for new commits
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now featurepilot-deploy.timer
+
 # --- cloudflared ------------------------------------------------------------
 # The public path in and out. Outbound-only, so no Oracle security list rule
 # and no dependence on the instance's public IP staying the same.

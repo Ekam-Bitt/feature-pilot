@@ -147,7 +147,7 @@ def client(manager: StubManager):  # noqa: ANN201
 
 class TestStartingRuns:
     def test_health(self, client) -> None:  # noqa: ANN001
-        assert client.get("/health").json() == {"status": "ok"}
+        assert client.get("/health").json()["status"] == "ok"
 
     def test_inline_issue_starts_a_run(self, client, manager: StubManager) -> None:  # noqa: ANN001
         response = client.post("/runs", json={"issue": "the total is wrong", "repo": "."})
@@ -623,3 +623,25 @@ def test_the_api_module_imports_without_any_credentials(
     module = importlib.reload(importlib.import_module("featurepilot.api.main"))
     assert module.app is not None
     assert "localhost:3000" in " ".join(module._cors_origins())
+
+
+class TestHealthReportsWhatIsRunning:
+    """Deployment is pull-based: the host watches main and updates itself,
+    because SSH is open to one address and a CI runner is never at it. That
+    leaves CI needing some way to tell whether its commit actually landed, and
+    the only thing it can reach is this endpoint.
+    """
+
+    def test_health_carries_the_running_commit(self, client) -> None:  # noqa: ANN001
+        body = client.get("/health").json()
+        assert body["status"] == "ok"
+        assert "commit" in body
+
+    def test_an_unknown_commit_is_reported_not_omitted(
+        self, client, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Outside a checkout there is no commit to name. The field stays, so a
+        deploy check reads a value it can compare rather than a missing key."""
+        monkeypatch.setattr(api, "_running_commit", lambda: None)
+        body = client.get("/health").json()
+        assert body["commit"] is None

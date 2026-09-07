@@ -1,21 +1,24 @@
-# Ships main to the host.
+# Confirms that main reached the host.
 #
-# The frontend is not here: Vercel's own Git integration deploys `web/` on push
-# and builds a preview for every pull request, which is strictly better than
-# driving its CLI from an Action — no token to store, and a preview URL on the
-# PR itself.
+# It does not deploy. The host deploys itself: a systemd timer runs
+# `deploy/scripts/self-deploy.sh`, which resets to main, syncs, and restarts.
+# That is pull-based on purpose — the host's SSH is open to a single address,
+# and a GitHub runner is never at it. The alternative was opening port 22 to
+# the internet so a runner could reach in, which trades a real reduction in
+# exposure for a nicer status badge.
 #
-# This is the other half. The host runs the API under systemd and the
-# datastores under compose, so a deploy is: fetch, hard reset to the commit
-# that was pushed, sync dependencies, restart, and prove it answers.
+# So this job watches the outcome instead, through the HTTPS the host already
+# serves, and fails loudly if the commit never appears. `/health` reports the
+# commit it is running for exactly this reason.
+#
+# Vercel deploys the frontend itself on push, and builds a preview per pull
+# request, which is why nothing here mentions it.
 
 name: deploy
 
 on:
   push:
     branches: [main]
-    # Only what the host actually runs. A README or a workflow change should
-    # not restart a service.
     paths:
       - "src/**"
       - "pyproject.toml"
@@ -25,66 +28,60 @@ on:
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
-# One deploy at a time, and never cancel one midway: a half-applied deploy
-# leaves the host on a commit nobody chose.
 concurrency:
   group: deploy-host
   cancel-in-progress: false
 
 jobs:
-  host:
-    name: api on the oracle host
+  landed:
+    name: main is live on the host
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: production
+    # Generous: the timer's period, plus a dependency sync and a restart.
+    timeout-minutes: 12
 
     steps:
-      - name: Authorise
+      - name: Wait for the host to be running this commit
         run: |
-          mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.FP_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          # Pinned on first contact rather than disabling the check outright:
-          # StrictHostKeyChecking=no would accept anything answering on that
-          # address.
-          ssh-keyscan -H "${{ secrets.FP_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-
-      - name: Deploy
-        run: |
-          ssh -o ConnectTimeout=20 "${{ secrets.FP_USER }}@${{ secrets.FP_HOST }}" bash -euo pipefail <<'REMOTE'
-            cd /opt/featurepilot
-            git fetch --quiet origin main
-            # Reset, not pull: the host is a copy of main, not a place where
-            # work happens, and a merge conflict there is not recoverable
-            # unattended.
-            git reset --hard --quiet origin/main
-            # `--extra aws` so setting a bedrock/* model is a config change
-            # rather than a reprovision: without boto3 the validator
-            # refuses those ids and the service will not start.
-            /usr/local/bin/uv sync --frozen --extra aws --quiet
-            sudo systemctl restart featurepilot-api
-          REMOTE
-
-      - name: Prove it answers
-        run: |
-          ssh -o ConnectTimeout=20 "${{ secrets.FP_USER }}@${{ secrets.FP_HOST }}" bash -euo pipefail <<'REMOTE'
-            for attempt in $(seq 1 20); do
-              if curl -sf --max-time 5 http://127.0.0.1:8080/health >/dev/null; then
-                echo "healthy after ${attempt} attempt(s)"
-                exec /usr/local/bin/uv run --directory /opt/featurepilot fpilot doctor
-              fi
-              sleep 3
-            done
-            echo "the API never became healthy; its logs follow" >&2
-            sudo journalctl -u featurepilot-api -n 40 --no-pager >&2
+          api="${{ vars.FP_API_URL }}"
+          if [ -z "$api" ]; then
+            echo "FP_API_URL is not set as a repository variable, so there is" >&2
+            echo "nothing to check. Set it to the host's public URL." >&2
             exit 1
-          REMOTE
+          fi
 
-      - name: Report what is live
+          echo "waiting for $api to report ${GITHUB_SHA:0:9}"
+          for attempt in $(seq 1 60); do
+            live=$(curl -sf --max-time 10 "$api/health" | python3 -c \
+              'import json,sys; print(json.load(sys.stdin).get("commit") or "")' 2>/dev/null || true)
+
+            if [ "$live" = "$GITHUB_SHA" ]; then
+              echo "live after ${attempt} check(s)"
+              exit 0
+            fi
+            echo "  ${attempt}: host is on ${live:0:9}"
+            sleep 10
+          done
+
+          cat >&2 <<MSG
+          The host never reported this commit.
+
+          It deploys itself on a timer, so the usual causes are that the timer
+          is not running, or that the deploy failed. On the host:
+
+            systemctl status featurepilot-deploy.timer
+            journalctl -u featurepilot-deploy -n 50
+          MSG
+          exit 1
+
+      - name: Say what is live
         if: always()
         run: |
+          api="${{ vars.FP_API_URL }}"
           {
             echo "### Host"
-            ssh -o ConnectTimeout=20 "${{ secrets.FP_USER }}@${{ secrets.FP_HOST }}" \
-              'echo "commit: $(git -C /opt/featurepilot log --oneline -1)"; echo "api: $(systemctl is-active featurepilot-api)"'
+            echo ""
+            echo '```json'
+            curl -sf --max-time 10 "$api/health" || echo '{"status":"unreachable"}'
+            echo ""
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
