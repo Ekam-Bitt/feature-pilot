@@ -17,11 +17,13 @@ import contextlib
 import logging
 import uuid
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from featurepilot.config import Settings, get_settings
 from featurepilot.contracts import HumanDecision, PRSummary
+from featurepilot.credentials import RunCredentials
 from featurepilot.github.client import GhError
 from featurepilot.github.clone import ClonedRepo, clone_root_for, shallow_clone
 from featurepilot.github.issues import IssueRef, fetch_issue
@@ -60,6 +62,12 @@ class RunRecord:
     pr_url: str | None = None
     publishing: bool = False
     draft: bool = False
+    #: This run's credentials. In memory only: never written to Postgres, never
+    #: in `public()`, never in an event payload.
+    credentials: RunCredentials = field(default_factory=RunCredentials)
+    #: True from admission until a concurrency slot frees up. A queued run and
+    #: a stalled one look identical from a browser without this.
+    queued: bool = True
 
     @property
     def finished(self) -> bool:
@@ -86,6 +94,7 @@ class RunRecord:
             "error": self.error,
             "pr_url": self.pr_url,
             "publishable": self.publishable,
+            "queued": self.queued,
         }
 
 
@@ -95,6 +104,71 @@ class RunManager:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
         self._runs: dict[str, RunRecord] = {}
+        #: Admitted runs, running or waiting for a slot. Counted rather than
+        #: derived from `_runs` because finished runs stay in `_runs` for
+        #: status queries long after they release their sandbox.
+        self._admitted = 0
+        self._slots = asyncio.Semaphore(self.settings.max_concurrent_runs)
+        #: Spend on the *server's* credentials only, for the current day.
+        self._spend_today = 0.0
+        self._spend_day = date.today()
+
+    # --- admission ---------------------------------------------------------
+    #
+    # Each concurrent run holds a sandbox container sized `sandbox_memory`, so
+    # concurrency is a memory ceiling. Past it runs queue; past the queue they
+    # are refused, because a queue that grows without limit just converts an
+    # overload into a room full of visitors watching a placeholder.
+
+    @property
+    def slots_available(self) -> int:
+        return max(0, self.settings.max_concurrent_runs - self._admitted)
+
+    @property
+    def accepting_runs(self) -> bool:
+        ceiling = self.settings.max_concurrent_runs + self.settings.max_queued_runs
+        return self._admitted < ceiling
+
+    def reserve_slot(self) -> None:
+        self._admitted += 1
+
+    def release_slot(self) -> None:
+        self._admitted = max(0, self._admitted - 1)
+
+    # --- spend -------------------------------------------------------------
+
+    def _roll_day(self) -> None:
+        today = date.today()
+        if today != self._spend_day:
+            self._spend_day = today
+            self._spend_today = 0.0
+
+    def record_spend(self, usd: float, *, credentials: RunCredentials) -> None:
+        """Only the operator's own credentials accrue: a visitor supplying a
+        key is spending their money, and metering it here would cap a budget
+        this process does not own."""
+        if not credentials.uses_server_credentials:
+            return
+        self._roll_day()
+        self._spend_today += usd
+
+    def within_daily_budget(self, credentials: RunCredentials) -> bool:
+        if not credentials.uses_server_credentials:
+            return True
+        self._roll_day()
+        return self._spend_today < self.settings.max_usd_per_day
+
+    # --- publishing --------------------------------------------------------
+
+    def effective_draft(self, credentials: RunCredentials, *, requested_draft: bool) -> bool:
+        """Draft is the floor for runs publishing under the operator's identity.
+
+        A visitor's run would otherwise open a non-draft pull request, on a
+        repository of their choosing, authored by the operator.
+        """
+        if credentials.uses_server_credentials:
+            return True
+        return requested_draft
 
     def get(self, run_id: str) -> RunRecord | None:
         return self._runs.get(run_id)
@@ -126,6 +200,7 @@ class RunManager:
         auto_approve: bool = False,
         auto_publish: bool = False,
         draft: bool = False,
+        credentials: RunCredentials | None = None,
     ) -> RunRecord:
         """Start a run from a public issue URL. Returns before the clone lands:
         fetch and clone happen inside the driving task, so POST /runs answers
@@ -134,15 +209,25 @@ class RunManager:
         record = RunRecord(run_id=run_id, repo="(cloning)", issue_ref=f"{ref.slug}#{ref.number}")
         record.issue_url = f"https://github.com/{ref.slug}/issues/{ref.number}"
         record.draft = draft
+        record.credentials = credentials or RunCredentials()
         self._runs[run_id] = record
+        # Reserved here, not inside the task: admission has to be decided
+        # before the caller is told the run was accepted, and the task may not
+        # be scheduled for a while.
+        self.reserve_slot()
         record.task = asyncio.create_task(
             self._drive_from_url(record, ref, auto_approve, auto_publish),
             name=f"fp-run-{run_id}",
         )
         return record
 
-    def _github_token(self) -> str | None:
-        token = self.settings.github_token
+    def _settings_for(self, record: RunRecord) -> Settings:
+        """This run's configuration: the server's, with the session's own
+        credentials layered on where it supplied them."""
+        return record.credentials.resolve(self.settings)
+
+    def _github_token(self, record: RunRecord) -> str | None:
+        token = self._settings_for(record).github_token
         return token.get_secret_value() if token else None
 
     async def publish(self, run_id: str, *, draft: bool = False) -> str:
@@ -157,7 +242,7 @@ class RunManager:
                 record.clone,
                 record.diff,
                 record.pr_summary,
-                token=self._github_token(),
+                token=self._github_token(record),
                 draft=draft,
             )
         finally:
@@ -197,7 +282,39 @@ class RunManager:
         auto_approve: bool,
         auto_publish: bool,
     ) -> None:
-        token = self._github_token()
+        # `release_slot` is in the `finally` because every exit path — a failed
+        # clone, a crashed graph, a cancelled task — has to return capacity.
+        # A leaked slot lowers the host's ceiling until the process restarts.
+        try:
+            async with self._slots:
+                record.queued = False
+                await self._run_one(record, ref, auto_approve, auto_publish)
+        except asyncio.CancelledError:
+            record.phase = RunPhase.FAILED
+            record.error = "cancelled"
+            record.pending = None
+            record.resumed.set()
+            raise
+        except Exception as exc:  # noqa: BLE001 - a failed run must not kill the API
+            # `_drive` handles its own failures; this catches the ingestion and
+            # publish steps around it, so a task never dies with nobody
+            # holding its exception and a run never sits in a phase it left.
+            log.exception("run %s failed outside the graph", record.run_id)
+            record.phase = RunPhase.FAILED
+            record.error = f"{type(exc).__name__}: {exc}"
+            record.pending = None
+            record.resumed.set()
+        finally:
+            self.release_slot()
+
+    async def _run_one(
+        self,
+        record: RunRecord,
+        ref: IssueRef,
+        auto_approve: bool,
+        auto_publish: bool,
+    ) -> None:
+        token = self._github_token(record)
         try:
             fetched = await asyncio.to_thread(fetch_issue, ref, token=token)
             clone = await asyncio.to_thread(
@@ -213,8 +330,9 @@ class RunManager:
         record.clone = clone
         await self._drive(record, clone.path, fetched.text, record.issue_ref, auto_approve)
         if auto_publish and record.publishable:
+            draft = self.effective_draft(record.credentials, requested_draft=record.draft)
             try:
-                await self.publish(record.run_id, draft=record.draft)
+                await self.publish(record.run_id, draft=draft)
             except (PublishError, GhError) as exc:
                 log.warning("auto-publish for %s failed: %s", record.run_id, exc)
                 record.error = f"run succeeded; publish failed: {exc}"
@@ -232,7 +350,7 @@ class RunManager:
                 repo,
                 issue,
                 issue_ref=issue_ref,
-                settings=self.settings,
+                settings=self._settings_for(record),
                 run_id=record.run_id,
                 auto_approve=auto_approve,
                 extra_sinks=(record.events,),
@@ -261,6 +379,12 @@ class RunManager:
                     # task rather than inside a request.
                     resume = await record.decisions.get()
 
+                # Metered before the exit stack unwinds: the recorder's
+                # totals are what a run actually cost, and the operator's
+                # daily ceiling is enforced from them.
+                self.record_spend(
+                    handle.ctx.recorder.totals.cost_usd, credentials=record.credentials
+                )
                 final = await handle.state()
                 record.phase = RunPhase(str(final.get("phase", RunPhase.FAILED)))
                 record.error = final.get("error")

@@ -169,6 +169,27 @@ class Settings(BaseSettings):
     # --- api --------------------------------------------------------------
     api_host: str = "127.0.0.1"
     api_port: int = 8080
+    #: Origins the browser frontend is served from. Comma-separated in the
+    #: environment. Defaults to the local dev server only: a public deployment
+    #: names its own origin rather than inheriting a permissive default.
+    api_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    #: Each concurrent run holds a sandbox container of `sandbox_memory`, so
+    #: this is a memory ceiling, not a preference. Runs past it queue.
+    max_concurrent_runs: int = 2
+    #: Rejected outright past this many waiting, so a queue cannot grow
+    #: unboundedly while every visitor watches a stalled placeholder.
+    max_queued_runs: int = 8
+    #: A publicly reachable deployment sets this false: a run against a server
+    #: path would carry that path's contents back out through the retrieval
+    #: context and the diff. The CLI and local development leave it on.
+    allow_local_repos: bool = True
+    #: Ceiling on what runs using *this server's* credentials may spend per
+    #: day. A visitor who supplies their own key is spending their own money
+    #: and is not counted against it.
+    max_usd_per_day: float = 5.00
+
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]
 
     @field_validator(
         "anthropic_api_key",

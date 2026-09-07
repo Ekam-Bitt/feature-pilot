@@ -1,18 +1,79 @@
-# Deploying Feature Pilot on AWS
+# Deploying Feature Pilot
 
-One EC2 host runs everything: the API under systemd, Postgres and Redis in
-compose, and each run's sandbox on the host's Docker daemon. Models route
-through Bedrock using the instance role, so **no API keys are written to the
-box**.
+Three ways to run this off a laptop, in ascending order of commitment:
 
-## Why a single instance and not Fargate
+| | Cost | Good for |
+|---|---|---|
+| **[GitHub Actions](../.github/workflows/solve.yml)** | free on public repos | one-off runs, reproducible demos |
+| **Any free VM + tunnel** (Oracle Always Free) | free | an always-on API a frontend can call |
+| **[AWS EC2](terraform/)** | ~7¢/session, start/stop | Bedrock via instance role, no keys on the box |
 
-`featurepilot.sandbox.runner` drives the Docker API directly — it creates a
-container per run, `put_archive`s the repository in, and `exec`s inside it.
-That needs a real Docker daemon, which Fargate does not provide. An EC2 host
-gives the sandbox a daemon and the API a home for the price of one instance.
+All three exist because of one constraint: the sandbox drives the Docker API
+directly (`docker.from_env`, `put_archive`, `exec`), so it needs a **real Docker
+daemon**. Render, Railway, Heroku and Fargate hand you a managed container
+instead, which is why they cannot host this at any price — a capability limit,
+not a pricing one.
 
-## Cost, honestly
+## Serving a browser frontend
+
+The API already streams everything a UI needs — `node_started`, `tool_called`,
+`model_called`, `phase_changed`, `artifact` — over SSE at
+`GET /runs/{id}/stream`, replaying history first so a late-joining browser still
+sees the whole run.
+
+**While building the frontend you need none of this.** The API allows
+`http://localhost:5173` by default, so a local dev server talks to a local
+`fpilot serve`. When someone else has to load the page:
+
+```bash
+uv run fpilot serve
+deploy/scripts/fp-tunnel.sh 8080     # prints an https://*.trycloudflare.com host
+```
+
+Before handing that URL to anyone, put the API in public mode — these are the
+settings that keep a public box from falling over or emptying your account:
+
+```bash
+FP_ALLOW_LOCAL_REPOS=false                       # public issue URLs only
+FP_API_CORS_ORIGINS=https://your-frontend.example
+FP_MAX_CONCURRENT_RUNS=2                         # each run holds a 2 GB sandbox
+FP_MAX_USD_PER_DAY=5                             # ceiling on runs using YOUR key
+```
+
+**How visitor credentials work.** A run uses the server's keys by default. If a
+visitor supplies their own in the frontend's modal, they are used for that run
+only: held in memory, never written to Postgres or `.fp/`, absent from the API's
+responses and from every event that leaves the process. Two concurrent runs with
+different keys cannot collide, because the key travels on the model instance
+rather than through the process environment.
+
+Runs on **your** key are forced to open **draft** pull requests, and count
+against `FP_MAX_USD_PER_DAY`. A visitor using their own token publishes under
+their own identity and is not capped by your budget.
+
+## An always-free VM (Oracle)
+
+Oracle's Always Free tier gives an ARM instance (2 OCPU / 12 GB as of 2026) at no
+cost indefinitely — more than enough, and the only genuinely free always-on host
+with a real Docker daemon. Create the instance, then on the box:
+
+```bash
+curl -fsSL <raw url>/deploy/scripts/provision-vm.sh | bash -s -- <your repo clone url>
+```
+
+It installs Docker, compose, gh and uv, clones the project, and prints the
+remaining steps. Two Oracle-specific warnings: A1 capacity is often exhausted in
+US regions (EU/APAC provision reliably), and their images ship a restrictive
+iptables policy that can silently break container networking — the script checks
+for it.
+
+## AWS EC2
+
+One host runs everything: the API under systemd, Postgres and Redis in compose,
+and each run's sandbox on the host's Docker daemon. Models route through Bedrock
+using the instance role, so **no API keys are written to the box**.
+
+### Cost, honestly
 
 This account is on the post-2025 **paid** plan: there is no free EC2 tier. The
 deployment is therefore **start/stop**, not always-on.

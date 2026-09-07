@@ -24,12 +24,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, SecretStr
 from sse_starlette.sse import EventSourceResponse
 
 from featurepilot.api.manager import RunManager, replay, subscribe
 from featurepilot.config import get_settings
 from featurepilot.contracts import HumanDecision
+from featurepilot.credentials import RunCredentials
 from featurepilot.github.client import GhError
 from featurepilot.github.issues import parse_issue_url
 from featurepilot.github.publish import PublishError
@@ -58,6 +60,15 @@ app = FastAPI(
     summary="Turn a GitHub issue into a tested patch.",
     lifespan=lifespan,
 )
+# The frontend is served from another origin, so without this a browser can
+# start a run and then be unable to read its own event stream. Credentials are
+# sent in the body, not as cookies, so `allow_credentials` stays off.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins(),
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["content-type"],
+)
 
 
 class StartRun(BaseModel):
@@ -75,6 +86,19 @@ class StartRun(BaseModel):
         default=False, description="URL runs only: fork, push, and open the PR when DONE."
     )
     draft: bool = Field(default=False, description="Open the PR as a draft.")
+    # Write-only: held in memory for this run, never persisted, never returned.
+    # Omit them to use the server's own credentials.
+    anthropic_api_key: SecretStr | None = Field(
+        default=None, description="Your own Anthropic key, used for this run only."
+    )
+    github_token: SecretStr | None = Field(
+        default=None, description="Your own GitHub token, so the PR is authored by you."
+    )
+
+    def credentials(self) -> RunCredentials:
+        return RunCredentials(
+            anthropic_api_key=self.anthropic_api_key, github_token=self.github_token
+        )
 
 
 class PublishRequest(BaseModel):
@@ -114,14 +138,37 @@ async def create_run(body: StartRun) -> dict[str, Any]:
             issue_ref = parse_issue_url(body.issue_url)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+
+        credentials = body.credentials()
+        # Capacity before budget: a full host cannot serve anyone, whereas an
+        # exhausted allowance still serves a visitor who brings their own key.
+        if not _manager().accepting_runs:
+            raise HTTPException(
+                503,
+                "at capacity — every sandbox slot and the queue are full; try again shortly",
+                headers={"Retry-After": "60"},
+            )
+        if not _manager().within_daily_budget(credentials):
+            raise HTTPException(
+                429,
+                "this server's daily model budget is spent. Supply your own "
+                "Anthropic key to run now — it is used for your session only.",
+            )
         # The clone happens in the driving task; this returns before it lands.
         record = await _manager().start_from_url(
             issue_ref,
             auto_approve=body.auto_approve,
             auto_publish=body.auto_publish,
             draft=body.draft,
+            credentials=credentials,
         )
         return record.public()
+
+    if not getattr(_manager().settings, "allow_local_repos", True):
+        raise HTTPException(
+            403,
+            "this deployment only runs from a public issue URL — pass issue_url",
+        )
 
     if body.issue_path:
         # Filesystem calls go to a thread: small as these reads are, blocking the
@@ -188,8 +235,11 @@ async def publish(run_id: str, body: PublishRequest) -> dict[str, Any]:
         raise HTTPException(
             409, "nothing to publish — run was not started from an issue URL, or produced no diff"
         )
+    # Draft is a floor, not a preference, when the run publishes under this
+    # server's identity rather than a visitor's own token.
+    draft = _manager().effective_draft(record.credentials, requested_draft=body.draft)
     try:
-        await _manager().publish(run_id, draft=body.draft)
+        await _manager().publish(run_id, draft=draft)
     except (PublishError, GhError) as exc:
         raise HTTPException(502, f"publish failed: {exc}") from exc
     return record.public()
