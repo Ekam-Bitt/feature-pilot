@@ -219,6 +219,28 @@ async def approve(run_id: str, body: Decision) -> dict[str, Any]:
     return {"run_id": run_id, "verdict": verdict}
 
 
+@app.get("/runs/{run_id}/artifacts")
+async def artifacts(run_id: str) -> dict[str, Any]:
+    """What the run produced: the patch, the PR summary, the test outcome.
+
+    Deliberately not on the event stream. Events are published to Redis and
+    LangSmith, so `MetricEvent.redacted()` strips diffs and file contents from
+    them — which leaves a browser with no way to see the one thing the run
+    exists to produce. This is that way: read once, by whoever holds the run id.
+    """
+    record = _manager().get(run_id)
+    if record is None:
+        raise HTTPException(404, f"unknown run {run_id}")
+    # Null rather than 404 while a run is still working, or racing the moment
+    # the phase flips to DONE before the artifacts are stashed.
+    return {
+        "run_id": run_id,
+        "diff": record.diff,
+        "pr_summary": record.pr_summary.model_dump() if record.pr_summary else None,
+        "test_summary": record.test_summary,
+    }
+
+
 @app.post("/runs/{run_id}/publish")
 async def publish(run_id: str, body: PublishRequest) -> dict[str, Any]:
     """The second human gate: this request *is* the approval to touch GitHub."""

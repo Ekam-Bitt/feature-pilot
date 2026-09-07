@@ -516,3 +516,50 @@ class TestLocalRepoRuns:
     def test_local_repo_runs_work_by_default(self, client, manager: StubManager, tmp_path) -> None:  # noqa: ANN001
         response = client.post("/runs", json={"issue": "fix it", "repo": str(tmp_path)})
         assert response.status_code == 201
+
+
+class TestArtifacts:
+    """The browser cannot get the diff any other way.
+
+    The event stream redacts `diff` and file contents from everything leaving
+    the process — Redis and LangSmith are downstream of it — and the status
+    endpoint never carried them. Without this endpoint the run view has nothing
+    to show for a finished run, which is the whole payoff.
+    """
+
+    def test_artifacts_of_a_finished_run(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        _done_url_record(manager)
+        body = client.get("/runs/run-1/artifacts").json()
+        assert body["diff"].startswith("--- a/x")
+        assert body["pr_summary"]["title"] == "Fix"
+        assert body["pr_summary"]["body"] == "B"
+        assert body["pr_summary"]["test_plan"] == "T"
+
+    def test_unknown_run_is_404(self, client) -> None:  # noqa: ANN001
+        assert client.get("/runs/nope/artifacts").status_code == 404
+
+    def test_a_run_still_working_reports_empty_rather_than_404(
+        self, client, manager: StubManager
+    ) -> None:  # noqa: ANN001
+        """The run view polls this once the phase reaches DONE, but a race
+        between the phase flipping and the artifacts being stashed must read as
+        'not yet', not as an error."""
+        record = _done_url_record(manager)
+        record.diff = None
+        record.pr_summary = None
+        body = client.get("/runs/run-1/artifacts").json()
+        assert body["diff"] is None
+        assert body["pr_summary"] is None
+
+    def test_credentials_are_not_in_the_artifacts(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        from pydantic import SecretStr
+
+        from featurepilot.credentials import RunCredentials
+
+        record = _done_url_record(manager)
+        record.credentials = RunCredentials(anthropic_api_key=SecretStr("sk-leak-canary"))
+        assert "sk-leak-canary" not in client.get("/runs/run-1/artifacts").text
+
+    def test_openapi_documents_it(self, client) -> None:  # noqa: ANN001
+        paths = json.loads(client.get("/openapi.json").text)["paths"]
+        assert "/runs/{run_id}/artifacts" in paths

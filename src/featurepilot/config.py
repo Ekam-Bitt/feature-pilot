@@ -170,9 +170,12 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = 8080
     #: Origins the browser frontend is served from. Comma-separated in the
-    #: environment. Defaults to the local dev server only: a public deployment
-    #: names its own origin rather than inheriting a permissive default.
-    api_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    #: environment. Defaults to the local dev servers only — Next's 3000 and
+    #: Vite's 5173 — because a public deployment names its own origin rather
+    #: than inheriting a permissive default.
+    api_cors_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+    )
     #: Each concurrent run holds a sandbox container of `sandbox_memory`, so
     #: this is a memory ceiling, not a preference. Runs past it queue.
     max_concurrent_runs: int = 2

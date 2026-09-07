@@ -29,6 +29,7 @@ from featurepilot.github.client import GhError
 from featurepilot.github.clone import ClonedRepo, clone_root_for, shallow_clone
 from featurepilot.github.issues import IssueRef, fetch_issue
 from featurepilot.github.publish import PublishError, publish_run
+from featurepilot.graph.nodes.describe import describe_tests
 from featurepilot.lifecycle import RunPhase
 from featurepilot.metrics.events import EventKind, InMemorySink, MetricEvent
 from featurepilot.run import open_run, stream_run
@@ -60,6 +61,8 @@ class RunRecord:
     clone: ClonedRepo | None = None
     pr_summary: PRSummary | None = None
     diff: str | None = None
+    #: How the suite ended, in the same words the reviewer was shown.
+    test_summary: str | None = None
     pr_url: str | None = None
     publishing: bool = False
     draft: bool = False
@@ -421,6 +424,7 @@ class RunManager:
                     record.pr_summary = final.get("pr")
                     code = final.get("code")
                     record.diff = code.diff if code is not None else None
+                    record.test_summary = describe_tests(final.get("tests"))
                 record.resumed.set()
         except asyncio.CancelledError:
             record.phase = RunPhase.FAILED
