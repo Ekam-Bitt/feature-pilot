@@ -164,3 +164,49 @@ class TestBedrockPricing:
         )
         assert prompt_cost > 0
         assert completion_cost > 0
+
+
+class TestParkingIsNotFailing:
+    """LangGraph's `interrupt()` parks a run by raising GraphInterrupt through
+    the node it was called from. Recording that as a node failure is wrong in
+    two visible ways: the run view drew "approval failed — GraphInterrupt" in
+    red at the exact moment the agent was politely asking a question, and
+    `node_metrics.ok` said false for every approval gate, so any analysis of
+    node failure rates counted human review as breakage.
+    """
+
+    async def test_a_graph_interrupt_ends_the_node_ok(self) -> None:
+        from langgraph.errors import GraphInterrupt
+
+        from featurepilot.metrics.events import EventKind, InMemorySink
+        from featurepilot.metrics.recorder import MetricsRecorder
+
+        sink = InMemorySink()
+        recorder = MetricsRecorder(
+            run_id="r1", sink=sink, settings=Settings(_env_file=None)  # type: ignore[call-arg]
+        )
+
+        with pytest.raises(GraphInterrupt):
+            async with recorder.node("approval", RunPhase.WAITING_APPROVAL):
+                raise GraphInterrupt(())
+
+        [ended] = [e for e in sink.events if e.kind is EventKind.NODE_ENDED]
+        assert ended.payload["ok"] is True
+        assert ended.payload["error"] is None
+
+    async def test_a_real_failure_still_reports_itself(self) -> None:
+        from featurepilot.metrics.events import EventKind, InMemorySink
+        from featurepilot.metrics.recorder import MetricsRecorder
+
+        sink = InMemorySink()
+        recorder = MetricsRecorder(
+            run_id="r1", sink=sink, settings=Settings(_env_file=None)  # type: ignore[call-arg]
+        )
+
+        with pytest.raises(RuntimeError):
+            async with recorder.node("code", RunPhase.CODING):
+                raise RuntimeError("the sandbox died")
+
+        [ended] = [e for e in sink.events if e.kind is EventKind.NODE_ENDED]
+        assert ended.payload["ok"] is False
+        assert "the sandbox died" in str(ended.payload["error"])

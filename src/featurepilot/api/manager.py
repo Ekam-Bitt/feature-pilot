@@ -99,6 +99,9 @@ class RunRecord:
             "pr_url": self.pr_url,
             "publishable": self.publishable,
             "queued": self.queued,
+            # The choice made at start, so a client can publish with it rather
+            # than guessing.
+            "draft": self.draft,
         }
 
 

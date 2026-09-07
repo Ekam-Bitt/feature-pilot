@@ -563,3 +563,11 @@ class TestArtifacts:
     def test_openapi_documents_it(self, client) -> None:  # noqa: ANN001
         paths = json.loads(client.get("/openapi.json").text)["paths"]
         assert "/runs/{run_id}/artifacts" in paths
+
+
+def test_status_reports_the_draft_preference(client, manager: StubManager) -> None:  # noqa: ANN001
+    """The run view publishes with the choice made when the run started, so it
+    has to be able to read that choice back."""
+    record = _done_url_record(manager)
+    record.draft = False
+    assert client.get("/runs/run-1").json()["draft"] is False

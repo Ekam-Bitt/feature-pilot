@@ -15,6 +15,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+from langgraph.errors import GraphInterrupt
+
 from featurepilot.config import Role, Settings
 from featurepilot.lifecycle import RunPhase
 from featurepilot.metrics.events import EventKind, EventSink, MetricEvent
@@ -163,12 +165,22 @@ class MetricsRecorder:
 
         Records the `ended` event on failure too — a node that blew up is
         exactly the one you want timing and error text for.
+
+        A GraphInterrupt is not such a node. It is how `interrupt()` parks a
+        run: LangGraph raises it through whichever node asked, carrying the
+        payload a human is meant to answer. Counting it as a failure made the
+        run view draw "approval failed" in red at the moment the agent was
+        asking a question politely, and left `node_metrics.ok` false for every
+        approval gate — so any reading of node failure rates counted human
+        review as breakage.
         """
         await self._emit(EventKind.NODE_STARTED, node=name, phase=str(phase), attempt=attempt)
         started = time.perf_counter()
         error: str | None = None
         try:
             yield
+        except GraphInterrupt:
+            raise
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             raise
