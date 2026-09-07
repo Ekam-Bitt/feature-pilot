@@ -58,7 +58,10 @@ jobs:
             # work happens, and a merge conflict there is not recoverable
             # unattended.
             git reset --hard --quiet origin/main
-            /usr/local/bin/uv sync --frozen --quiet
+            # `--extra aws` so setting a bedrock/* model is a config change
+            # rather than a reprovision: without boto3 the validator
+            # refuses those ids and the service will not start.
+            /usr/local/bin/uv sync --frozen --extra aws --quiet
             sudo systemctl restart featurepilot-api
           REMOTE
 

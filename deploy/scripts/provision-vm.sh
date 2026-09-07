@@ -109,7 +109,7 @@ log "syncing dependencies"
 # root-owned .venv is unusable by the systemd unit (User=$RUN_USER) — the
 # service fails to start with a permission error on the interpreter itself.
 # -H so uv's cache lands in the run user's home rather than root's.
-sudo -u "$RUN_USER" -H /usr/local/bin/uv sync
+sudo -u "$RUN_USER" -H /usr/local/bin/uv sync --extra aws
 
 if [ ! -f .env ]; then
   cp .env.example .env
