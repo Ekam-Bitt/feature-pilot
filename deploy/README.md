@@ -51,21 +51,67 @@ Runs on **your** key are forced to open **draft** pull requests, and count
 against `FP_MAX_USD_PER_DAY`. A visitor using their own token publishes under
 their own identity and is not capped by your budget.
 
-## An always-free VM (Oracle)
+## An always-free VM (Oracle) — the recommended host
 
-Oracle's Always Free tier gives an ARM instance (2 OCPU / 12 GB as of 2026) at no
-cost indefinitely — more than enough, and the only genuinely free always-on host
-with a real Docker daemon. Create the instance, then on the box:
+Oracle's Always Free tier gives an ARM instance at no cost indefinitely. It is
+the only genuinely free always-on host with a real Docker daemon, and it runs
+everything built here with no code changes: the same API, the same SSE stream,
+the same per-run container sandbox.
+
+**Why this and not a container platform.** Render, Railway, Koyeb, Fly and
+Hugging Face Spaces all hand you a managed container with no daemon inside it,
+and Docker-in-Docker needs privileges none of them grant. That rules them out
+for the API at any price. They remain fine for hosting the *frontend*.
+
+### Creating the instance
+
+In the Oracle Cloud console → Compute → Instances → Create:
+
+| Field | Value | Why |
+|---|---|---|
+| Shape | **VM.Standard.A1.Flex**, 2 OCPU / 12 GB | The Always Free ARM shape. Halved from 4/24 in 2026; 12 GB is still ample. |
+| Image | Ubuntu 22.04 or 24.04 (ARM) | Oracle Linux works too — the script handles both. |
+| Boot volume | 50 GB or more | The sandbox image is ~390 MB and each run clones a repository. |
+| SSH key | your public key | Oracle does not offer password login. |
+
+Two things that actually bite:
+
+- **"Out of host capacity."** A1 capacity is frequently exhausted in US regions;
+  EU and APAC (Frankfurt, Singapore, Tokyo) usually provision within minutes.
+  Capacity is per-region and your home region is fixed at signup, so choose it
+  with this in mind. Retrying the same request later does eventually succeed.
+- **Signup wants a card** for identity verification. Always Free resources are
+  not charged against it, but the check is unavoidable.
+
+### Provisioning it
 
 ```bash
-curl -fsSL <raw url>/deploy/scripts/provision-vm.sh | bash -s -- <your repo clone url>
+ssh ubuntu@<instance-ip>
+curl -fsSL https://raw.githubusercontent.com/Ekam-Bitt/feature-pilot/main/deploy/scripts/provision-vm.sh \
+  | bash -s -- https://github.com/Ekam-Bitt/feature-pilot.git main
 ```
 
-It installs Docker, compose, gh and uv, clones the project, and prints the
-remaining steps. Two Oracle-specific warnings: A1 capacity is often exhausted in
-US regions (EU/APAC provision reliably), and their images ship a restrictive
-iptables policy that can silently break container networking — the script checks
-for it.
+It installs Docker, compose, gh, uv and cloudflared, adds swap, fixes the
+iptables policy described below, clones the project, brings up the datastores,
+installs `featurepilot-api` as a systemd service, and prints what is left to do.
+It is safe to re-run — every step checks for its own result first.
+
+Then, on the box: put your key in `.env`, `gh auth login`,
+`sudo systemctl start featurepilot-api`, and confirm with `uv run fpilot doctor`
+that every row reads ok.
+
+### The one Oracle-specific trap
+
+Oracle's images persist a default-REJECT `INPUT` policy that sits **above** the
+chains Docker inserts. Containers start, and then nothing resolves — DNS fails
+inside the sandbox and a run dies at the dependency install with an error that
+points nowhere near the cause. The provisioning script reorders the rules; if
+you hit it anyway, `sudo iptables -L INPUT -n` shows the REJECT sitting too
+early.
+
+Nothing inbound needs opening beyond SSH: the API is reached through an
+outbound tunnel, so no Oracle security list rule and no dependence on the
+instance keeping its public IP.
 
 ## AWS EC2
 
