@@ -210,3 +210,74 @@ class TestQueueVisibility:
         for record in (first, second):
             assert record.task is not None
             await record.task
+
+
+class TestTheCapSeesRealSpend:
+    """The daily ceiling reads `recorder.totals.cost_usd`. If that were ever
+    zero the cap would fail open silently — the worst failure mode for a money
+    guard — so this pins the number the manager actually meters, using the same
+    token counts a real run produced.
+    """
+
+    async def test_a_model_call_produces_spend_the_cap_can_see(self) -> None:
+        from featurepilot.config import Role
+        from featurepilot.metrics.events import InMemorySink
+        from featurepilot.metrics.recorder import MetricsRecorder
+
+        settings = Settings(anthropic_api_key=SecretStr("sk-server"), _env_file=None)  # type: ignore[call-arg]
+        recorder = MetricsRecorder(run_id="r1", sink=InMemorySink(), settings=settings)
+        await recorder.record_model_call(
+            role=Role.CODER,
+            model="anthropic/claude-sonnet-5",
+            input_tokens=7707,
+            output_tokens=135,
+        )
+
+        assert recorder.totals.cost_usd > 0
+
+        manager = _manager(max_usd_per_day=0.01)
+        manager.record_spend(recorder.totals.cost_usd, credentials=SERVER_CREDS)
+        assert manager.within_daily_budget(SERVER_CREDS) is False
+
+
+class TestTheCapSurvivesARestart:
+    """The ceiling was in-memory only, so restarting the API — a crash, a
+    deploy — reset the day's spend to zero and the guard failed open, which is
+    the one direction a money guard must never fail. Real cost is durable in
+    the raw event log, so the manager seeds itself from it.
+    """
+
+    def test_spend_already_on_disk_counts_against_today(self) -> None:
+        manager = _manager(max_usd_per_day=1.00)
+        manager.seed_spend_from(lambda: 1.50)  # a previous process spent this
+        assert manager.within_daily_budget(SERVER_CREDS) is False
+
+    def test_seeding_is_added_to_not_replaced_by_later_spend(self) -> None:
+        manager = _manager(max_usd_per_day=1.00)
+        manager.seed_spend_from(lambda: 0.60)
+        manager.record_spend(0.50, credentials=SERVER_CREDS)
+        assert manager.within_daily_budget(SERVER_CREDS) is False
+
+    def test_a_seed_that_cannot_be_read_does_not_break_startup(self) -> None:
+        """Postgres being down must not stop the API from serving; the cap
+        degrades to this process's own accounting."""
+
+        def unavailable() -> float:
+            raise OSError("connection refused")
+
+        manager = _manager(max_usd_per_day=1.00)
+        manager.seed_spend_from(unavailable)
+        assert manager.within_daily_budget(SERVER_CREDS) is True
+
+    def test_seeding_happens_once_not_on_every_check(self) -> None:
+        manager = _manager(max_usd_per_day=10.00)
+        calls = []
+
+        def source() -> float:
+            calls.append(1)
+            return 0.10
+
+        manager.seed_spend_from(source)
+        manager.within_daily_budget(SERVER_CREDS)
+        manager.within_daily_budget(SERVER_CREDS)
+        assert len(calls) == 1

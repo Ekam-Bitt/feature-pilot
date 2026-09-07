@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -112,6 +113,12 @@ class RunManager:
         #: Spend on the *server's* credentials only, for the current day.
         self._spend_today = 0.0
         self._spend_day = date.today()
+        #: Where to recover a previous process's spend from. Read once, lazily,
+        #: because the ceiling has to survive a restart: held only in memory it
+        #: reset to zero on every deploy and the guard failed open, which is
+        #: the one direction a money guard must not fail.
+        self._spend_source: Callable[[], float] | None = _durable_spend_today
+        self._seeded = False
 
     # --- admission ---------------------------------------------------------
     #
@@ -137,11 +144,32 @@ class RunManager:
 
     # --- spend -------------------------------------------------------------
 
+    def seed_spend_from(self, source: Callable[[], float] | None) -> None:
+        """Override where recovered spend comes from (tests, or a deployment
+        with no durable store)."""
+        self._spend_source = source
+        self._seeded = False
+
+    def _seed_once(self) -> None:
+        if self._seeded:
+            return
+        self._seeded = True
+        if self._spend_source is None:
+            return
+        try:
+            self._spend_today += self._spend_source()
+        except Exception as exc:  # noqa: BLE001
+            # A datastore that cannot be read must not stop the API serving.
+            # The cap degrades to this process's own accounting, and says so.
+            log.warning("could not recover today's spend (%s); cap is per-process", exc)
+
     def _roll_day(self) -> None:
         today = date.today()
         if today != self._spend_day:
             self._spend_day = today
             self._spend_today = 0.0
+            self._seeded = False
+        self._seed_once()
 
     def record_spend(self, usd: float, *, credentials: RunCredentials) -> None:
         """Only the operator's own credentials accrue: a visitor supplying a
@@ -406,6 +434,31 @@ class RunManager:
             record.error = f"{type(exc).__name__}: {exc}"
             record.pending = None
             record.resumed.set()
+
+
+def _durable_spend_today() -> float:
+    """Today's model spend, from the raw event log.
+
+    The `run_metrics` and `node_metrics` projections carry zeros for cost —
+    their inserts never populate those columns — so the raw log is the only
+    place the real number lives, which is also what its own docstring says it
+    is for.
+
+    This deliberately counts *all* of today's spend, not just server-funded
+    runs: the log does not record which credential paid, and over-counting
+    makes the ceiling conservative. Erring the other way would let the guard
+    fail open, and a visitor's own run is exempt from the ceiling anyway.
+    """
+    import psycopg
+
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, connect_timeout=3) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM((payload->>'cost_usd')::numeric), 0)"
+            " FROM metric_events"
+            " WHERE kind = 'model_called' AND emitted_at >= date_trunc('day', now())"
+        ).fetchone()
+    return float(row[0]) if row else 0.0
 
 
 async def subscribe(settings: Settings, run_id: str) -> Any:
