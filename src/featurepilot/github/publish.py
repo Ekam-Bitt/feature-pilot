@@ -169,7 +169,10 @@ def publish_run(
         client.run_git(clone.path, "remote", "add", "fork", fork_url)
     except client.GhError:
         client.run_git(clone.path, "remote", "set-url", "fork", fork_url)
-    client.run_git(clone.path, "push", "-f", "fork", branch)
+    # The only call here that talks to GitHub, and so the only one needing a
+    # credential. A freshly provisioned host has no git credential helper, so
+    # without this the push fails with "could not read Username".
+    client.run_git(clone.path, "push", "-f", "fork", branch, token=token)
 
     head = f"{fork.split('/')[0]}:{branch}"
     existing = client.gh_json(

@@ -108,3 +108,57 @@ class TestEnsureGhAvailable:
         monkeypatch.setattr(client.shutil, "which", lambda name: "/usr/bin/gh")
         monkeypatch.setattr(client.subprocess, "run", lambda *a, **k: _completed(stdout="ok"))
         client.ensure_gh_available()  # does not raise
+
+
+class TestGitAuthentication:
+    """Pushing must not depend on the machine having a git credential helper.
+
+    A developer's laptop has one (osxkeychain, or gh's); a freshly provisioned
+    server has none, and git then fails with "could not read Username" — which
+    is exactly how this was found, on a real host.
+
+    The token goes through GIT_ASKPASS rather than the URL or a command-line
+    flag, because GhError puts the whole argv in its message and that message
+    reaches API clients.
+    """
+
+    def test_token_is_passed_out_of_band_never_in_argv(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+        # Kept before patching: the helper has to be executed for real to prove
+        # it answers git, and subprocess.run is about to be a fake.
+        real_run = client.subprocess.run
+
+        def fake_run(argv: list[str], **kwargs: Any) -> Any:
+            seen["argv"] = argv
+            seen["env"] = kwargs["env"]
+            return _completed(stdout="pushed")
+
+        monkeypatch.setattr(client.subprocess, "run", fake_run)
+        client.run_git(Path("/repo"), "push", "-f", "fork", "branch", token="ghp-secret")
+
+        assert "ghp-secret" not in " ".join(seen["argv"])
+        assert seen["env"]["GIT_TERMINAL_PROMPT"] == "0"
+        askpass = seen["env"]["GIT_ASKPASS"]
+        assert Path(askpass).exists()
+        result = real_run(
+            [askpass, "Password for 'https://github.com':"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout.strip() == "ghp-secret"
+
+    def test_no_token_leaves_git_to_its_own_configuration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def fake_run(argv: list[str], **kwargs: Any) -> Any:
+            seen["env"] = kwargs.get("env") or {}
+            return _completed(stdout="ok")
+
+        monkeypatch.setattr(client.subprocess, "run", fake_run)
+        client.run_git(Path("/repo"), "status")
+        assert "GIT_ASKPASS" not in seen["env"]

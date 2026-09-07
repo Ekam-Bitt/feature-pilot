@@ -105,12 +105,26 @@ sudo chown -R "$RUN_USER:$RUN_USER" "$TARGET"
 
 cd "$TARGET"
 log "syncing dependencies"
-/usr/local/bin/uv sync
+# As the run user, not as root. Under cloud-init this script is root, and a
+# root-owned .venv is unusable by the systemd unit (User=$RUN_USER) — the
+# service fails to start with a permission error on the interpreter itself.
+# -H so uv's cache lands in the run user's home rather than root's.
+sudo -u "$RUN_USER" -H /usr/local/bin/uv sync
 
 if [ ! -f .env ]; then
   cp .env.example .env
+  # Ownership matters here: under cloud-init this script is root, and the
+  # chown above already ran, so a file created now would be root's and the
+  # operator could not edit the very file they are told to edit. 600 because
+  # it is about to hold API keys.
+  sudo chown "$RUN_USER:$RUN_USER" .env
+  sudo chmod 600 .env
   log ".env created from the example — it still needs ANTHROPIC_API_KEY"
 fi
+
+# Anything created above while root still belongs to root. One sweep, after
+# every file exists, rather than trusting each step to have got it right.
+sudo chown -R "$RUN_USER:$RUN_USER" "$TARGET"
 
 log "starting datastores"
 sudo -u "$RUN_USER" docker compose up -d --wait || {

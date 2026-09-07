@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +27,51 @@ class GhError(RuntimeError):
         super().__init__(f"{' '.join(argv)} exited {returncode}: {stderr.strip()}")
 
 
-def run_git(cwd: Path, *args: str) -> str:
-    """Run git in `cwd`; return stdout, raise GhError on nonzero exit."""
+#: Written once per process, not per call: git invokes it as a subprocess, so
+#: it has to be a real file on disk that outlives the call.
+_ASKPASS_CACHE: dict[str, str] = {}
+
+
+def _askpass_for(token: str) -> str:
+    """Path to a helper that prints `token`, for git to authenticate with.
+
+    Out of band on purpose. A token in the remote URL ends up in `git remote
+    -v`, and a token in a command-line flag ends up in GhError's message —
+    which is returned to API clients. Neither is a place for a credential.
+    """
+    cached = _ASKPASS_CACHE.get(token)
+    if cached and Path(cached).exists():
+        return cached
+    with tempfile.NamedTemporaryFile(
+        "w", prefix="fp-askpass-", suffix=".sh", delete=False
+    ) as handle:
+        # Any argument: git asks for a username first, then a password, and the
+        # token answers both (GitHub ignores the username for token auth).
+        handle.write(f"#!/bin/sh\nprintf %s {shlex.quote(token)}\n")
+    path = Path(handle.name)
+    path.chmod(0o700)
+    _ASKPASS_CACHE[token] = str(path)
+    return str(path)
+
+
+def run_git(cwd: Path, *args: str, token: str | None = None) -> str:
+    """Run git in `cwd`; return stdout, raise GhError on nonzero exit.
+
+    With a token, git authenticates through GIT_ASKPASS rather than whatever
+    credential helper the machine happens to have configured. A developer's
+    laptop has one; a freshly provisioned server does not, and a push there
+    fails with "could not read Username" instead.
+    """
     argv = ["git", "-C", str(cwd), *args]
-    result = subprocess.run(argv, capture_output=True, text=True, check=False)  # noqa: S603
+    env: dict[str, str] | None = None
+    if token:
+        env = dict(os.environ)
+        env["GIT_ASKPASS"] = _askpass_for(token)
+        # Never block waiting for a human that isn't there.
+        env["GIT_TERMINAL_PROMPT"] = "0"
+    result = subprocess.run(  # noqa: S603
+        argv, capture_output=True, text=True, check=False, env=env
+    )
     if result.returncode != 0:
         raise GhError(argv, result.returncode, result.stderr)
     return result.stdout

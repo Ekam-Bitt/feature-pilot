@@ -266,3 +266,42 @@ class TestEnsureForkOwnRepo:
         fork = ensure_fork(IssueRef("acme", "widget", 7))
         assert fork == "acme/widget"
         assert not any(c[:2] == ["repo", "fork"] for c in gh.calls)
+
+
+class TestPushCarriesTheToken:
+    """The push is the one git call that needs credentials, and the box it runs
+    on may have no credential helper at all."""
+
+    def test_push_is_given_the_token(self, tmp_path: Path, gh: _ScriptedGh) -> None:
+        from featurepilot.github import publish as publish_module
+        from featurepilot.github.publish import publish_run
+
+        calls: list[tuple[tuple[str, ...], str | None]] = []
+        real_run_git = publish_module.client.run_git
+
+        def recording_run_git(cwd: Path, *args: str, token: str | None = None) -> str:
+            calls.append((args, token))
+            return real_run_git(cwd, *args, token=token)
+
+        clone, fork_bare, pr = TestPublishRun()._setup(tmp_path, gh)
+        gh.script("pr list", [])
+        gh.script("pr create", "https://github.com/acme/widget/pull/11\n")
+
+        import pytest as _pytest
+
+        with _pytest.MonkeyPatch.context() as mp:
+            mp.setattr(publish_module.client, "run_git", recording_run_git)
+            publish_run(
+                clone,
+                TestPublishRun.DIFF,
+                pr,
+                token="ghp-visitor",
+                fork_url_override=f"file://{fork_bare}",
+            )
+
+        pushes = [(a, t) for a, t in calls if a and a[0] == "push"]
+        assert pushes, "expected a push"
+        assert all(t == "ghp-visitor" for _, t in pushes), "push must carry the token"
+        # Local git work needs no credential and should not be handed one.
+        commits = [(a, t) for a, t in calls if a and a[0] == "commit"]
+        assert all(t is None for _, t in commits)
