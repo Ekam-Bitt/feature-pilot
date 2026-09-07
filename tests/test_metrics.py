@@ -143,3 +143,24 @@ class TestRunSummary:
         assert payload["outcome"] == "success"
         assert payload["input_tokens"] == 100
         assert payload["nonexistent_ref_rate"] == 0.25
+
+
+class TestBedrockPricing:
+    """Cost accounting rides litellm's local pricing map; these ids must stay
+    resolvable offline or every Bedrock run silently records $0.00."""
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        ],
+    )
+    def test_bedrock_profile_ids_have_prices(self, model: str) -> None:
+        import litellm
+
+        prompt_cost, completion_cost = litellm.cost_per_token(
+            model=model, prompt_tokens=1000, completion_tokens=100
+        )
+        assert prompt_cost > 0
+        assert completion_cost > 0

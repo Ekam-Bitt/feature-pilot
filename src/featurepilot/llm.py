@@ -140,6 +140,11 @@ def _export_provider_keys(settings: Settings) -> None:
     """
     if settings.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
         os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key.get_secret_value()
+    # Bedrock credentials come from boto3's own chain (env, ~/.aws, instance
+    # role); the region is the one thing LiteLLM still needs told.
+    uses_bedrock = any(m.startswith("bedrock/") for m in settings._configured_models())
+    if uses_bedrock and not os.environ.get("AWS_REGION"):
+        os.environ["AWS_REGION"] = settings.aws_region
 
 
 def chat_model(
