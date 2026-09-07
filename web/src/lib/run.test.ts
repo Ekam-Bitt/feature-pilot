@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyRun, gateFromStatus, reduce, reduceAll, toEvent } from "@/lib/run";
+import { emptyRun, eventKey, gateFromStatus, reduce, reduceAll, toEvent } from "@/lib/run";
 import type { FpEvent } from "@/lib/types";
 
 /** Event shapes copied from a real run's SSE stream, not invented. */
@@ -377,5 +377,71 @@ describe("the gate from a polled status", () => {
   it("does nothing when the status says nothing is pending", () => {
     const s = emptyRun();
     expect(gateFromStatus(s, { awaiting_human: false, pending: null })).toBe(s);
+  });
+});
+
+describe("identifying an event, so a replay cannot be counted twice", () => {
+  /**
+   * The stream replays its whole history on every connection, and EventSource
+   * reconnects on its own whenever the server closes — which it does the
+   * moment a run finishes. So a finished run reconnected every few seconds,
+   * replayed 7 model calls each time, and the totals climbed without bound:
+   * $0.16 of real spend was displayed as $2.71, and 7 model calls as 119.
+   *
+   * The reducer stays additive, because that is what a fold is. Recognising a
+   * repeat is the boundary's job, and this is how it recognises one.
+   */
+  const call = (cost: number, at: string): FpEvent => ({
+    run_id: "r1",
+    kind: "model_called",
+    payload: { role: "coder", cost_usd: cost },
+    emitted_at: at,
+  });
+
+  it("gives the same event the same key", () => {
+    const one = call(0.0283, "2026-09-08T00:00:01.5Z");
+    expect(eventKey(one)).toBe(eventKey({ ...one }));
+  });
+
+  it("separates two calls that differ only in when they happened", () => {
+    expect(eventKey(call(0.0283, "2026-09-08T00:00:01.5Z"))).not.toBe(
+      eventKey(call(0.0283, "2026-09-08T00:00:02.5Z")),
+    );
+  });
+
+  it("separates two calls at the same instant with different payloads", () => {
+    expect(eventKey(call(0.01, "2026-09-08T00:00:01.5Z"))).not.toBe(
+      eventKey(call(0.02, "2026-09-08T00:00:01.5Z")),
+    );
+  });
+
+  it("treats the synthesised events as one apiece", () => {
+    // These carry no timestamp and are idempotent anyway — applying
+    // `run_finished` twice sets the same flag — but they must not collide
+    // with each other.
+    const finished = toEvent("run_finished", { run_id: "r1", phase: "DONE" });
+    const gate = toEvent("awaiting_human", {
+      run_id: "r1",
+      pending: { summary: "s", steps: [] },
+    });
+    expect(eventKey(finished)).not.toBe(eventKey(gate));
+  });
+
+  it("folding a replayed history through the filter leaves totals alone", () => {
+    const history = [
+      call(0.0283, "2026-09-08T00:00:01Z"),
+      call(0.0242, "2026-09-08T00:00:02Z"),
+    ];
+    const seen = new Set<string>();
+    const fresh = [...history, ...history].filter((e) => {
+      const key = eventKey(e);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const state = reduceAll(emptyRun(), fresh);
+    expect(state.totals.modelCalls).toBe(2);
+    expect(state.totals.costUsd).toBeCloseTo(0.0525, 6);
   });
 });

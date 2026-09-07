@@ -184,6 +184,24 @@ export function toEvent(name: string, body: Record<string, unknown>): FpEvent {
   };
 }
 
+/**
+ * A stable identity for one event, so a replay can be recognised and dropped.
+ *
+ * The stream replays its entire history on every connection, and EventSource
+ * reconnects by itself whenever the server closes — which it does the instant
+ * a run finishes. A finished run therefore reconnected every few seconds,
+ * replayed the same seven model calls, and the totals climbed without bound:
+ * $0.16 of real spend was displayed as $11, and seven model calls as a
+ * hundred and nineteen. Nothing was actually spent, which made it worse — the
+ * page was lying about money.
+ *
+ * The reducer stays additive, because summing is what a fold does. Noticing a
+ * repeat belongs at the boundary, and this is how the boundary notices.
+ */
+export function eventKey(event: FpEvent): string {
+  return `${event.kind}|${event.emitted_at}|${JSON.stringify(event.payload)}`;
+}
+
 export function reduce(state: RunState, event: FpEvent): RunState {
   const p = event.payload ?? {};
 

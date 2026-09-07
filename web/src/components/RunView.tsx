@@ -8,7 +8,14 @@ import { Masthead } from "@/components/Masthead";
 import { PhaseRail } from "@/components/PhaseRail";
 import { StatRow } from "@/components/StatRow";
 import { ApiError, approveRun, getArtifacts, getRun, publishRun, streamUrl } from "@/lib/api";
-import { emptyRun, gateFromStatus, reduce, toEvent, type RunState } from "@/lib/run";
+import {
+  emptyRun,
+  eventKey,
+  gateFromStatus,
+  reduce,
+  toEvent,
+  type RunState,
+} from "@/lib/run";
 import type { FpEvent, RunArtifacts, RunStatus } from "@/lib/types";
 
 const clock = (seconds: number): string =>
@@ -34,12 +41,32 @@ export function RunView({ runId }: { runId: string }) {
 
   // The stream replays everything already recorded before it follows, so a
   // browser opened late reaches the same state as one that watched from the
-  // start. That is why the reducer must be idempotent about shape.
+  // start.
+  //
+  // That replay is also a hazard, and it bit hard. EventSource reconnects on
+  // its own whenever the server closes the connection, which it does the
+  // moment a run finishes — so a finished run reconnected every few seconds,
+  // replayed its history, and the additive totals climbed without end: $0.16
+  // of real spend read as $11. Two things stop it. Every event is applied at
+  // most once, by identity; and the stream is closed for good once the run is
+  // over, so there is nothing left to reconnect.
   useEffect(() => {
     const source = new EventSource(streamUrl(runId));
+    const applied = new Set<string>();
+
     const listen = (name: string) => (e: MessageEvent) => {
       try {
-        dispatch({ event: toEvent(name, JSON.parse(e.data) as Record<string, unknown>) });
+        const event = toEvent(name, JSON.parse(e.data) as Record<string, unknown>);
+        const key = eventKey(event);
+        if (applied.has(key)) return;
+        applied.add(key);
+        dispatch({ event });
+
+        if (name === "run_finished") {
+          // Nothing more will happen, and leaving it open invites the
+          // reconnect loop this whole comment is about.
+          source.close();
+        }
       } catch {
         /* a keepalive, or JSON this version does not model */
       }
