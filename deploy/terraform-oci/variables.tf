@@ -81,3 +81,20 @@ variable "boot_volume_size_in_gbs" {
   type        = number
   default     = 50
 }
+
+variable "serve_https" {
+  description = <<-EOT
+    Open 80 and 443 so Caddy can answer the public frontend directly and get a
+    certificate. Off by default: it publishes an API that has no
+    authentication of its own, whose protection is public mode, the daily
+    spend ceiling, the concurrency cap, and draft-only pull requests.
+
+    It exists because a Cloudflare quick tunnel buffers a response until it
+    completes, and a server-sent event stream never completes — 70 events
+    arrived through the tunnel from a run that had finished, and zero from one
+    still going. Terminating TLS on the host removes the proxy from the path
+    rather than arguing with it.
+  EOT
+  type        = bool
+  default     = false
+}

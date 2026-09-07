@@ -279,7 +279,18 @@ async def stream(run_id: str) -> EventSourceResponse:
     record = _manager().get(run_id)
     if record is None:
         raise HTTPException(404, f"unknown run {run_id}")
-    return EventSourceResponse(_events(run_id), ping=int(KEEPALIVE_SECONDS))
+    return EventSourceResponse(
+        _events(run_id),
+        ping=int(KEEPALIVE_SECONDS),
+        # sse-starlette already sends `X-Accel-Buffering: no`, which nginx
+        # honours. Cloudflare does not: it buffers any response it might
+        # compress, and an SSE response never completes, so the whole stream
+        # is held. Deployed behind a tunnel this was 52 events on loopback and
+        # zero through the edge — the page polled its status happily and never
+        # drew the approval gate. `no-transform` is the request not to rewrite
+        # the body, which is what turns the compression pass off.
+        headers={"Cache-Control": "no-store, no-transform"},
+    )
 
 
 async def _events(run_id: str) -> AsyncIterator[dict[str, str]]:

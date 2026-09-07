@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyRun, reduce, reduceAll, toEvent } from "@/lib/run";
+import { emptyRun, gateFromStatus, reduce, reduceAll, toEvent } from "@/lib/run";
 import type { FpEvent } from "@/lib/types";
 
 /** Event shapes copied from a real run's SSE stream, not invented. */
@@ -326,5 +326,56 @@ describe("elapsed time", () => {
   it("stays null when the synthesised events carry no timestamp", () => {
     const s = reduce(emptyRun(), toEvent("run_finished", { run_id: "r1", phase: "DONE" }));
     expect(s.startedAt).toBeNull();
+  });
+});
+
+describe("the gate from a polled status", () => {
+  /**
+   * The gate used to come only from the event stream. Deployed behind a
+   * buffering proxy the stream delivered nothing, so the page polled the run's
+   * status happily — `awaiting_human: true`, the whole plan sitting in
+   * `pending` — and still showed no way to approve it. The run was
+   * unfinishable from the browser.
+   *
+   * Status polling is the more reliable of the two channels: an ordinary
+   * request/response that any proxy handles. It should be able to raise the
+   * gate on its own.
+   */
+  it("raises the gate from a status payload", () => {
+    const s = gateFromStatus(emptyRun(), {
+      awaiting_human: true,
+      pending: { kind: "plan_approval", summary: "Stack the promos.", steps: [] },
+    });
+    expect(s.gate?.summary).toBe("Stack the promos.");
+  });
+
+  it("leaves an existing gate alone rather than resetting a half-typed answer", () => {
+    const open = reduce(
+      emptyRun(),
+      toEvent("awaiting_human", {
+        run_id: "r1",
+        pending: { kind: "plan_approval", summary: "From the stream.", steps: [] },
+      }),
+    );
+    const polled = gateFromStatus(open, {
+      awaiting_human: true,
+      pending: { kind: "plan_approval", summary: "From the poll.", steps: [] },
+    });
+    expect(polled.gate?.summary).toBe("From the stream.");
+    expect(polled).toBe(open);
+  });
+
+  it("lowers the gate once the run is no longer waiting", () => {
+    const open = gateFromStatus(emptyRun(), {
+      awaiting_human: true,
+      pending: { kind: "plan_approval", summary: "Stack the promos.", steps: [] },
+    });
+    const moved = gateFromStatus(open, { awaiting_human: false, pending: null });
+    expect(moved.gate).toBeNull();
+  });
+
+  it("does nothing when the status says nothing is pending", () => {
+    const s = emptyRun();
+    expect(gateFromStatus(s, { awaiting_human: false, pending: null })).toBe(s);
   });
 });

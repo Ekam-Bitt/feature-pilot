@@ -8,14 +8,23 @@ import { Masthead } from "@/components/Masthead";
 import { PhaseRail } from "@/components/PhaseRail";
 import { StatRow } from "@/components/StatRow";
 import { ApiError, approveRun, getArtifacts, getRun, publishRun, streamUrl } from "@/lib/api";
-import { emptyRun, reduce, toEvent } from "@/lib/run";
-import type { RunArtifacts, RunStatus } from "@/lib/types";
+import { emptyRun, gateFromStatus, reduce, toEvent, type RunState } from "@/lib/run";
+import type { FpEvent, RunArtifacts, RunStatus } from "@/lib/types";
 
 const clock = (seconds: number): string =>
   `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 
+type RunAction = { event: FpEvent } | { status: RunStatus };
+
+/** Events and polled status both fold into the same state. */
+function runReducer(state: RunState, action: RunAction): RunState {
+  return "event" in action
+    ? reduce(state, action.event)
+    : gateFromStatus(state, action.status);
+}
+
 export function RunView({ runId }: { runId: string }) {
-  const [state, dispatch] = useReducer(reduce, undefined, emptyRun);
+  const [state, dispatch] = useReducer(runReducer, undefined, emptyRun);
   const [status, setStatus] = useState<RunStatus | null>(null);
   const [artifacts, setArtifacts] = useState<RunArtifacts | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
@@ -30,7 +39,7 @@ export function RunView({ runId }: { runId: string }) {
     const source = new EventSource(streamUrl(runId));
     const listen = (name: string) => (e: MessageEvent) => {
       try {
-        dispatch(toEvent(name, JSON.parse(e.data) as Record<string, unknown>));
+        dispatch({ event: toEvent(name, JSON.parse(e.data) as Record<string, unknown>) });
       } catch {
         /* a keepalive, or JSON this version does not model */
       }
@@ -63,7 +72,11 @@ export function RunView({ runId }: { runId: string }) {
     const poll = async () => {
       try {
         const next = await getRun(runId);
-        if (alive) setStatus(next);
+        if (!alive) return;
+        setStatus(next);
+        // The stream is the livelier channel and the less reliable one; this
+        // is the fallback that keeps a parked run answerable without it.
+        dispatch({ status: next });
       } catch (err) {
         if (alive && err instanceof ApiError && err.status === 404) {
           setNotice(

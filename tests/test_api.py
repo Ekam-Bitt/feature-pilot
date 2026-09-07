@@ -571,3 +571,32 @@ def test_status_reports_the_draft_preference(client, manager: StubManager) -> No
     record = _done_url_record(manager)
     record.draft = False
     assert client.get("/runs/run-1").json()["draft"] is False
+
+
+class TestTheStreamSurvivesAProxy:
+    """The event stream has to pass through whatever fronts the API.
+
+    Deployed behind a Cloudflare tunnel, it did not: 52 events arrived on the
+    box's own loopback and zero through the tunnel, because the edge buffers a
+    response until it completes and an SSE response never completes. The page
+    polled its status happily and simply never drew the approval gate.
+
+    `X-Accel-Buffering: no` is the header nginx defined and Cloudflare honours
+    to turn that off. It costs nothing locally and is the difference between
+    working and silently dead in front of a proxy.
+    """
+
+    def test_the_stream_asks_proxies_not_to_buffer(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        record = RunRecord(run_id="run-1", repo="/tmp/x", issue_ref="a/b#1")
+        record.phase = RunPhase.DONE
+        manager.runs[record.run_id] = record
+
+        with client.stream("GET", "/runs/run-1/stream") as response:
+            assert response.status_code == 200
+            assert response.headers.get("x-accel-buffering") == "no"
+            assert response.headers["content-type"].startswith("text/event-stream")
+            # sse-starlette supplies the two above. This one is ours: Cloudflare
+            # buffers a response it intends to compress, and an SSE response
+            # never ends, so it is held forever. `no-transform` is how a
+            # response says do not rewrite me.
+            assert "no-transform" in response.headers.get("cache-control", "")

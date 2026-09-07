@@ -262,3 +262,27 @@ export function reduce(state: RunState, event: FpEvent): RunState {
 
 export const reduceAll = (state: RunState, events: FpEvent[]): RunState =>
   events.reduce(reduce, state);
+
+/**
+ * The gate, from a polled status rather than the stream.
+ *
+ * Two channels report that a run is waiting: the event stream, and
+ * `GET /runs/{id}`, whose `pending` field carries the same plan. The stream is
+ * the livelier one and the less reliable — behind a buffering proxy it
+ * delivered nothing at all, and the page then polled a run that said
+ * `awaiting_human: true` while offering no way to answer it.
+ *
+ * An existing gate is never replaced: the reader may be halfway through
+ * typing an answer into it, and the two channels carry the same plan anyway.
+ */
+export function gateFromStatus(
+  state: RunState,
+  status: { awaiting_human: boolean; pending: Record<string, unknown> | null },
+): RunState {
+  if (!status.awaiting_human || !status.pending) {
+    return state.gate === null ? state : { ...state, gate: null };
+  }
+  if (state.gate) return state;
+  const gate = readGate({ pending: status.pending });
+  return gate ? { ...state, gate } : state;
+}

@@ -85,10 +85,23 @@ resource "oci_core_security_list" "fp" {
     }
   }
 
-  # No rule for 8080 on purpose. The API has no authentication of its own, so
-  # it binds to loopback and is reached through an outbound tunnel or an SSH
-  # port-forward. Opening it here would publish an unauthenticated endpoint
-  # that starts jobs and spends money.
+  # Never 8080. The API binds to loopback; what faces the internet is Caddy on
+  # 443, and only when `serve_https` says so.
+  dynamic "ingress_security_rules" {
+    for_each = var.serve_https ? [80, 443] : []
+
+    content {
+      source      = "0.0.0.0/0"
+      source_type = "CIDR_BLOCK"
+      protocol    = "6" # TCP
+      description = ingress_security_rules.value == 80 ? "ACME challenge" : "HTTPS"
+
+      tcp_options {
+        min = ingress_security_rules.value
+        max = ingress_security_rules.value
+      }
+    }
+  }
 }
 
 resource "oci_core_subnet" "fp" {
