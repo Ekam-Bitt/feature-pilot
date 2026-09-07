@@ -18,3 +18,5 @@ build/
 *.tfstate
 *.tfstate.*
 *.tfvars
+# OCI CLI credentials, if anyone ever puts them in-tree.
+.oci/

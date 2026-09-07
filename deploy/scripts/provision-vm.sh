@@ -16,7 +16,10 @@ set -euo pipefail
 REPO_URL="${1:?usage: provision-vm.sh <repo clone url> [branch] [target dir]}"
 BRANCH="${2:-main}"
 TARGET="${3:-/opt/featurepilot}"
-RUN_USER="${SUDO_USER:-$USER}"
+# Whose service this becomes. cloud-init runs as root, where SUDO_USER is
+# either unset or root, so an explicit override is the only reliable signal —
+# without it the API would be installed as a root service on a fresh boot.
+RUN_USER="${FP_RUN_USER:-${SUDO_USER:-$USER}}"
 
 log() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
