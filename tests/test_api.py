@@ -41,12 +41,41 @@ class StubManager:
         self.runs: dict[str, RunRecord] = {}
         self.started: list[tuple[str, str, bool]] = []
         self.approvals: list[HumanDecision] = []
+        self.url_started = []
+        self.published = []
+        self.publish_error = None
+
+    url_started: list[tuple[str, int, bool, bool]]
+    published: list[tuple[str, bool]]
+    publish_error: Exception | None
 
     def get(self, run_id: str) -> RunRecord | None:
         return self.runs.get(run_id)
 
     def list(self) -> list[dict[str, Any]]:
         return [r.public() for r in self.runs.values()]
+
+    async def start_from_url(
+        self,
+        ref: Any,
+        *,
+        auto_approve: bool = False,
+        auto_publish: bool = False,
+        draft: bool = False,
+    ) -> RunRecord:
+        record = RunRecord(run_id="run-1", repo="(cloning)", issue_ref=f"{ref.slug}#{ref.number}")
+        record.issue_url = f"https://github.com/{ref.slug}/issues/{ref.number}"
+        self.runs[record.run_id] = record
+        self.url_started.append((ref.slug, ref.number, auto_publish, draft))
+        return record
+
+    async def publish(self, run_id: str, *, draft: bool = False) -> str:
+        if self.publish_error is not None:
+            raise self.publish_error
+        self.published.append((run_id, draft))
+        record = self.runs[run_id]
+        record.pr_url = "https://github.com/acme/widget/pull/9"
+        return record.pr_url
 
     async def start(
         self, repo: Any, issue: str, *, issue_ref: str = "", auto_approve: bool = False
@@ -256,3 +285,97 @@ def test_openapi_documents_every_endpoint(client) -> None:  # noqa: ANN001
     assert {"/runs", "/runs/{run_id}", "/runs/{run_id}/approve", "/runs/{run_id}/stream"} <= set(
         paths
     )
+
+
+URL = "https://github.com/acme/widget/issues/7"
+
+
+def _done_url_record(manager: StubManager, *, pr_url: str | None = None) -> RunRecord:
+    """A URL-started run that finished DONE with artifacts cached on the record."""
+    from pathlib import Path
+
+    from featurepilot.contracts import PRSummary
+    from featurepilot.github.clone import ClonedRepo
+    from featurepilot.github.issues import IssueRef
+
+    record = RunRecord(run_id="run-1", repo="/tmp/clone/widget", issue_ref="acme/widget#7")
+    record.phase = RunPhase.DONE
+    record.issue_url = URL
+    record.clone = ClonedRepo(
+        path=Path("/tmp/clone/widget"),
+        ref=IssueRef("acme", "widget", 7),
+        head_sha="deadbeef",
+        default_branch="main",
+    )
+    record.diff = "--- a/x\n+++ b/x\n"
+    record.pr_summary = PRSummary(title="Fix", body="B", test_plan="T")
+    record.pr_url = pr_url
+    manager.runs[record.run_id] = record
+    return record
+
+
+class TestUrlRuns:
+    def test_url_starts_a_run_and_returns_immediately(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        response = client.post("/runs", json={"issue_url": URL})
+        assert response.status_code == 201, response.text
+        assert manager.url_started == [("acme/widget", 7, False, False)]
+
+    def test_a_bad_url_is_rejected(self, client) -> None:  # noqa: ANN001
+        response = client.post("/runs", json={"issue_url": "https://github.com/acme/widget/pull/7"})
+        assert response.status_code == 400
+        assert "issues/<number>" in response.text
+
+    def test_url_and_inline_issue_together_are_rejected(self, client) -> None:  # noqa: ANN001
+        response = client.post("/runs", json={"issue_url": URL, "issue": "also this"})
+        assert response.status_code == 400
+
+    def test_auto_publish_is_passed_through(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        client.post("/runs", json={"issue_url": URL, "auto_publish": True, "draft": True})
+        assert manager.url_started == [("acme/widget", 7, True, True)]
+
+
+class TestPublish:
+    def test_unknown_run_is_404(self, client) -> None:  # noqa: ANN001
+        assert client.post("/runs/nope/publish", json={}).status_code == 404
+
+    def test_publish_before_done_is_409(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        record = _done_url_record(manager)
+        record.phase = RunPhase.CODING
+        assert client.post("/runs/run-1/publish", json={}).status_code == 409
+
+    def test_publish_of_a_non_url_run_is_409(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        record = _done_url_record(manager)
+        record.clone = None
+        response = client.post("/runs/run-1/publish", json={})
+        assert response.status_code == 409
+
+    def test_publish_returns_the_pr_url(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        _done_url_record(manager)
+        response = client.post("/runs/run-1/publish", json={"draft": True})
+        assert response.status_code == 200, response.text
+        assert response.json()["pr_url"] == "https://github.com/acme/widget/pull/9"
+        assert manager.published == [("run-1", True)]
+
+    def test_republish_returns_the_cached_url_without_publishing(
+        self, client, manager: StubManager
+    ) -> None:  # noqa: ANN001
+        _done_url_record(manager, pr_url="https://github.com/acme/widget/pull/9")
+        response = client.post("/runs/run-1/publish", json={})
+        assert response.status_code == 200
+        assert response.json()["pr_url"].endswith("/pull/9")
+        assert manager.published == []
+
+    def test_publish_failure_is_502(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        from featurepilot.github.publish import PublishError
+
+        _done_url_record(manager)
+        manager.publish_error = PublishError("patch does not apply")
+        response = client.post("/runs/run-1/publish", json={})
+        assert response.status_code == 502
+        assert "patch does not apply" in response.text
+
+    def test_status_reports_publishability(self, client, manager: StubManager) -> None:  # noqa: ANN001
+        _done_url_record(manager)
+        body = client.get("/runs/run-1").json()
+        assert body["publishable"] is True
+        assert body["pr_url"] is None

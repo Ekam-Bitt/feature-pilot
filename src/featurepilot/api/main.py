@@ -30,6 +30,10 @@ from sse_starlette.sse import EventSourceResponse
 from featurepilot.api.manager import RunManager, replay, subscribe
 from featurepilot.config import get_settings
 from featurepilot.contracts import HumanDecision
+from featurepilot.github.client import GhError
+from featurepilot.github.issues import parse_issue_url
+from featurepilot.github.publish import PublishError
+from featurepilot.lifecycle import RunPhase
 
 log = logging.getLogger(__name__)
 
@@ -60,10 +64,21 @@ class StartRun(BaseModel):
     repo: str = Field(default="fixtures/target-repo", description="Repository to work on.")
     issue: str | None = Field(default=None, description="Issue text, inline.")
     issue_path: str | None = Field(default=None, description="Path to an issue file.")
+    issue_url: str | None = Field(
+        default=None, description="Public GitHub issue URL; clones the repo and solves it."
+    )
     issue_ref: str = Field(default="", description="Human-readable reference.")
     auto_approve: bool = Field(
         default=False, description="Skip the plan gate. Open questions still stop the run."
     )
+    auto_publish: bool = Field(
+        default=False, description="URL runs only: fork, push, and open the PR when DONE."
+    )
+    draft: bool = Field(default=False, description="Open the PR as a draft.")
+
+
+class PublishRequest(BaseModel):
+    draft: bool = Field(default=False, description="Open the PR as a draft.")
 
 
 class Decision(BaseModel):
@@ -90,14 +105,30 @@ def _read_issue(issue_path: str, issue_ref: str) -> tuple[str, str]:
 
 @app.post("/runs", status_code=201)
 async def create_run(body: StartRun) -> dict[str, Any]:
+    sources = [s for s in (body.issue, body.issue_path, body.issue_url) if s]
+    if len(sources) != 1:
+        raise HTTPException(400, "provide exactly one of issue, issue_path, issue_url")
+
+    if body.issue_url:
+        try:
+            issue_ref = parse_issue_url(body.issue_url)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        # The clone happens in the driving task; this returns before it lands.
+        record = await _manager().start_from_url(
+            issue_ref,
+            auto_approve=body.auto_approve,
+            auto_publish=body.auto_publish,
+            draft=body.draft,
+        )
+        return record.public()
+
     if body.issue_path:
         # Filesystem calls go to a thread: small as these reads are, blocking the
         # event loop in a request handler stalls every in-flight SSE stream too.
         issue, ref = await asyncio.to_thread(_read_issue, body.issue_path, body.issue_ref)
-    elif body.issue:
-        issue, ref = body.issue, body.issue_ref or "(inline)"
     else:
-        raise HTTPException(400, "provide either issue or issue_path")
+        issue, ref = body.issue or "", body.issue_ref or "(inline)"
 
     repo = Path(body.repo)
     if not await asyncio.to_thread(repo.is_dir):
@@ -139,6 +170,29 @@ async def approve(run_id: str, body: Decision) -> dict[str, Any]:
     if not ok:
         raise HTTPException(409, "this run is not waiting for a decision")
     return {"run_id": run_id, "verdict": verdict}
+
+
+@app.post("/runs/{run_id}/publish")
+async def publish(run_id: str, body: PublishRequest) -> dict[str, Any]:
+    """The second human gate: this request *is* the approval to touch GitHub."""
+    record = _manager().get(run_id)
+    if record is None:
+        raise HTTPException(404, f"unknown run {run_id}")
+    if record.pr_url:
+        return record.public()  # idempotent: the PR already exists
+    if record.publishing:
+        raise HTTPException(409, "publish already in flight")
+    if record.phase is not RunPhase.DONE:
+        raise HTTPException(409, f"run is {record.phase}, not done")
+    if not record.publishable:
+        raise HTTPException(
+            409, "nothing to publish — run was not started from an issue URL, or produced no diff"
+        )
+    try:
+        await _manager().publish(run_id, draft=body.draft)
+    except (PublishError, GhError) as exc:
+        raise HTTPException(502, f"publish failed: {exc}") from exc
+    return record.public()
 
 
 @app.delete("/runs/{run_id}")
