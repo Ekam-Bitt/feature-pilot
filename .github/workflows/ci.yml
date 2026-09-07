@@ -55,8 +55,12 @@ jobs:
 
       # --frozen fails rather than silently resolving something new, so CI can
       # never pass against a dependency set the lockfile does not describe.
+      # `--extra aws` because the Bedrock routing tests need boto3 importable:
+      # the config validator refuses a `bedrock/*` model without it, which is
+      # the point of the check. It brings no credentials and needs none, so the
+      # suite stays as cheap and as offline as the header claims.
       - name: Sync dependencies
-        run: uv sync --frozen
+        run: uv sync --frozen --extra aws
 
       - name: Lint
         run: uv run ruff check .
