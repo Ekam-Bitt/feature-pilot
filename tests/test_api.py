@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from featurepilot.api import main as api
 from featurepilot.api.manager import RunRecord
+from featurepilot.config import get_settings
 from featurepilot.contracts import HumanDecision
 from featurepilot.lifecycle import RunPhase
 from featurepilot.metrics.events import EventKind, MetricEvent
@@ -600,3 +601,25 @@ class TestTheStreamSurvivesAProxy:
             # never ends, so it is held forever. `no-transform` is how a
             # response says do not rewrite me.
             assert "no-transform" in response.headers.get("cache-control", "")
+
+
+def test_the_api_module_imports_without_any_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The offline suite exercises every route with no API key, which is the
+    property that keeps CI free. Resolving CORS origins through
+    `get_settings()` at import time quietly ended that: Settings validates
+    credentials, so importing this module started demanding an
+    ANTHROPIC_API_KEY.
+    """
+    import importlib
+
+    for name in ("ANTHROPIC_API_KEY", "FP_API_CORS_ORIGINS", "GITHUB_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    # .env would supply the key on a developer's machine; CI has neither.
+    monkeypatch.setattr("featurepilot.config.Settings.model_config", {"env_file": None})
+    get_settings.cache_clear()
+
+    module = importlib.reload(importlib.import_module("featurepilot.api.main"))
+    assert module.app is not None
+    assert "localhost:3000" in " ".join(module._cors_origins())

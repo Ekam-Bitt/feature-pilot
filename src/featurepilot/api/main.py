@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -29,7 +30,7 @@ from pydantic import BaseModel, Field, SecretStr
 from sse_starlette.sse import EventSourceResponse
 
 from featurepilot.api.manager import RunManager, replay, subscribe
-from featurepilot.config import get_settings
+from featurepilot.config import Settings, get_settings
 from featurepilot.contracts import HumanDecision
 from featurepilot.credentials import RunCredentials
 from featurepilot.github.client import GhError
@@ -60,12 +61,31 @@ app = FastAPI(
     summary="Turn a GitHub issue into a tested patch.",
     lifespan=lifespan,
 )
+
+
 # The frontend is served from another origin, so without this a browser can
 # start a run and then be unable to read its own event stream. Credentials are
 # sent in the body, not as cookies, so `allow_credentials` stays off.
+def _cors_origins() -> list[str]:
+    """Allowed origins, resolved without constructing Settings.
+
+    `get_settings()` validates credentials, and this module has to be
+    importable without any: the offline suite imports it to exercise routes
+    with no API key at all, which is the property that keeps CI cheap. Calling
+    it here made importing the API require an ANTHROPIC_API_KEY, and CI said so
+    within the minute.
+
+    The default is read off the field rather than repeated, so there is still
+    one place that decides it.
+    """
+    declared = Settings.model_fields["api_cors_origins"].default
+    raw = os.environ.get("FP_API_CORS_ORIGINS") or str(declared)
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_settings().cors_origins(),
+    allow_origins=_cors_origins(),
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["content-type"],
 )

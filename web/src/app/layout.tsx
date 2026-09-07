@@ -18,7 +18,11 @@ export const metadata: Metadata = {
     "An autonomous software engineer. Give it a public GitHub issue; watch it plan, patch, test, repair, and open the pull request.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+// Typed explicitly rather than with Next's generated `LayoutProps`. Those
+// globals are written into .next/types during a build, so `tsc --noEmit` on a
+// clean checkout cannot see them — it passes locally only because a build has
+// already run, and fails the moment CI does it in the right order.
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">{children}</body>
