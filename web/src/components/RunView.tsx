@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useState } from "react";
 import { Diff } from "@/components/Diff";
 import { Feed } from "@/components/Feed";
 import { GateCard } from "@/components/GateCard";
+import { Markdown } from "@/components/Markdown";
 import { Masthead } from "@/components/Masthead";
 import { PhaseRail } from "@/components/PhaseRail";
 import { StatRow } from "@/components/StatRow";
@@ -265,9 +266,12 @@ export function RunView({ runId }: { runId: string }) {
             <h3 className="mt-3 text-[19px] font-semibold leading-snug tracking-tight text-ink">
               {artifacts.pr_summary.title}
             </h3>
-            <p className="mt-3 whitespace-pre-wrap text-[14px] leading-relaxed text-ink-secondary">
-              {artifacts.pr_summary.body}
-            </p>
+            {/* The summariser writes Markdown — numbered lists, bold, and
+                inline code, mostly — and `whitespace-pre-wrap` showed the
+                asterisks and backticks raw. */}
+            <div className="mt-4">
+              <Markdown source={artifacts.pr_summary.body} />
+            </div>
 
             {artifacts.test_summary && (
               // Whole, not the first line. The first line is raw counts — "72

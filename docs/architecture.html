@@ -1,0 +1,996 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<title>Feature Pilot Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+
+<style>
+  :root {
+    --ground: #e9ebe7;
+    --surface: #fbfcfa;
+    --sunken: #dfe3de;
+    --ink: #141a18;
+    --muted: #5b655f;
+    --faint: #869089;
+    --rule: #ccd3cc;
+    --accent: #0d6f6c;
+    --accent-soft: #d5e6e4;
+    --signal: #9a6206;
+    --signal-soft: #f0e3c8;
+    --pass: #2c6f45;
+    --fail: #a3392b;
+    --shadow: 0 1px 2px rgba(20, 26, 24, .06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0f1413;
+      --surface: #171d1c;
+      --sunken: #101615;
+      --ink: #e4eae6;
+      --muted: #96a29c;
+      --faint: #6f7c76;
+      --rule: #2b3532;
+      --accent: #58bdb7;
+      --accent-soft: #14322f;
+      --signal: #d9a445;
+      --signal-soft: #322813;
+      --pass: #63c088;
+      --fail: #e3796a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0f1413;
+    --surface: #171d1c;
+    --sunken: #101615;
+    --ink: #e4eae6;
+    --muted: #96a29c;
+    --faint: #6f7c76;
+    --rule: #2b3532;
+    --accent: #58bdb7;
+    --accent-soft: #14322f;
+    --signal: #d9a445;
+    --signal-soft: #322813;
+    --pass: #63c088;
+    --fail: #e3796a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  .prose { max-width: 68ch; }
+
+  /* ---------- masthead ---------- */
+
+  header.masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .kicker {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    font-family: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight: 700;
+    font-size: clamp(38px, 6vw, 62px);
+    line-height: 1.0;
+    letter-spacing: -.028em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: 20px;
+    line-height: 1.5;
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0;
+  }
+
+  .spine {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    line-height: 2.1;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    padding: 14px 18px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .spine .gate { color: var(--signal); }
+
+  /* ---------- sections ---------- */
+
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .sechead {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    border-top: 1px solid var(--rule);
+    padding-top: 14px;
+  }
+
+  .sechead .num {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    color: var(--faint);
+    padding-top: 5px;
+  }
+
+  h2 {
+    font-family: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight: 600;
+    font-size: clamp(24px, 3vw, 31px);
+    letter-spacing: -.02em;
+    line-height: 1.14;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    font-weight: 600;
+    font-size: 17px;
+    letter-spacing: -.01em;
+    margin: 0 0 -8px;
+  }
+
+  p { margin: 0; }
+  .prose p + p { margin-top: 14px; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .86em;
+  }
+
+  .prose code {
+    background: var(--sunken);
+    border-radius: 3px;
+    padding: .08em .3em;
+  }
+
+  strong { font-weight: 600; }
+
+  /* ---------- figures ---------- */
+
+  figure {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .plate {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 22px 20px;
+    overflow-x: auto;
+    box-shadow: var(--shadow);
+  }
+
+  .plate svg {
+    display: block;
+    width: 100%;
+    min-width: 720px;
+    max-width: 100%;
+    height: auto;
+    color: var(--ink);
+  }
+
+  figcaption {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--muted);
+    max-width: 84ch;
+  }
+
+  figcaption b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* svg primitives */
+  .n-fill { fill: var(--surface); }
+  .n-stroke { stroke: var(--ink); }
+  .grp { fill: var(--sunken); }
+  .acc-fill { fill: var(--accent-soft); }
+  .acc-stroke { stroke: var(--accent); }
+  .sig-fill { fill: var(--signal-soft); }
+  .sig-stroke { stroke: var(--signal); }
+  .t { fill: var(--ink); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .t-m { fill: var(--muted); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .t-f { fill: var(--faint); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .t-a { fill: var(--accent); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .t-s { fill: var(--signal); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .t-p { fill: var(--pass); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .t-x { fill: var(--fail); font-family: "IBM Plex Mono", ui-monospace, monospace; }
+  .edge { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .edge-m { stroke: var(--muted); stroke-width: 1.2; fill: none; }
+  .edge-a { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+  .edge-x { stroke: var(--fail); stroke-width: 1.3; fill: none; }
+  .edge-p { stroke: var(--pass); stroke-width: 1.3; fill: none; }
+  .edge-s { stroke: var(--signal); stroke-width: 1.3; fill: none; }
+  .dash { stroke-dasharray: 4 3.5; }
+
+  /* ---------- tables ---------- */
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+  td:first-child { color: var(--ink); white-space: nowrap; }
+  td .note { font-family: "Source Serif 4", Georgia, serif; font-size: 14px; }
+
+  /* ---------- aside note ---------- */
+
+  .note-block {
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    padding: 14px 18px;
+    max-width: 72ch;
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  .note-block .label {
+    display: block;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--signal);
+    margin-bottom: 5px;
+  }
+
+  /* ---------- file map ---------- */
+
+  .filemap {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 0 40px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .filemap div {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .filemap .path {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+
+  .filemap .what {
+    font-size: 14px;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 18px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+  }
+
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .page { padding: 36px 16px 64px; gap: 44px; }
+    .plate { padding: 14px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header class="masthead">
+    <span class="kicker">Feature Pilot · workflow architecture</span>
+    <h1>How one issue becomes a pull request</h1>
+    <p class="standfirst">An autonomous software-engineering agent built on LangGraph: it clones a repository,
+      reads enough of it to plan, edits and tests inside a throwaway container, repairs its own failures,
+      and opens the PR — pausing twice for a human.</p>
+    <div class="spine">Issue URL → Clone → Retrieve → Plan → <span class="gate">[approve]</span> → Code → Test → ⟲ Debug
+          → Review → PR summary → <span class="gate">[approve]</span> → Fork → Push → Pull request</div>
+  </header>
+
+  <!-- ============================= 1 ============================= -->
+  <section>
+    <div class="sechead">
+      <span class="num">01</span>
+      <h2>The run, end to end</h2>
+    </div>
+
+    <div class="prose">
+      <p>A run is four things in sequence: pull the issue and the code, stand up an isolated
+        container, drive the agent graph, then publish. Only the third is the agent. The other three
+        are the reason its output can be trusted and its side effects contained.</p>
+    </div>
+
+    <figure>
+      <div class="plate">
+        <svg viewBox="0 0 1080 250" role="img" aria-label="End-to-end run: issue URL, fetch issue and shallow clone, sandbox bring-up in the fixed order install dependencies then cut network then snapshot, the agent graph, then fork push and pull request. Two human approval gates: the plan, and the pull request.">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <!-- gate lane -->
+          <rect x="638" y="20" width="132" height="28" rx="14" class="sig-fill sig-stroke" stroke-width="1.2"/>
+          <text x="704" y="38" class="t-s" font-size="11.5" text-anchor="middle">① approve plan</text>
+          <path d="M704 48 L704 92" class="edge-s dash"/>
+
+          <rect x="858" y="20" width="132" height="28" rx="14" class="sig-fill sig-stroke" stroke-width="1.2"/>
+          <text x="924" y="38" class="t-s" font-size="11.5" text-anchor="middle">② approve PR</text>
+          <path d="M924 48 L924 92" class="edge-s dash"/>
+
+          <!-- A: issue -->
+          <rect x="8" y="92" width="104" height="56" rx="28" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="60" y="117" class="t" font-size="12" text-anchor="middle">issue URL</text>
+          <text x="60" y="133" class="t-f" font-size="9.5" text-anchor="middle">github.com/…</text>
+          <path d="M112 120 L140 120" class="edge" marker-end="url(#a1)"/>
+
+          <!-- B: ingest -->
+          <rect x="146" y="92" width="150" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="221" y="115" class="t" font-size="12" text-anchor="middle">fetch + clone</text>
+          <text x="221" y="132" class="t-f" font-size="9.5" text-anchor="middle">gh api · depth 1</text>
+          <path d="M296 120 L324 120" class="edge" marker-end="url(#a1)"/>
+
+          <!-- C: sandbox bring-up -->
+          <rect x="330" y="70" width="300" height="102" class="grp" stroke="var(--rule)" stroke-width="1"/>
+          <text x="340" y="86" class="t-f" font-size="10">throwaway container · order is load-bearing</text>
+          <rect x="342" y="96" width="86" height="48" class="n-fill n-stroke" stroke-width="1.2"/>
+          <text x="385" y="117" class="t" font-size="10.5" text-anchor="middle">install</text>
+          <text x="385" y="131" class="t-f" font-size="9" text-anchor="middle">net on</text>
+          <path d="M428 120 L442 120" class="edge" marker-end="url(#a1)"/>
+          <rect x="446" y="96" width="86" height="48" class="n-fill n-stroke" stroke-width="1.2"/>
+          <text x="489" y="117" class="t" font-size="10.5" text-anchor="middle">cut net</text>
+          <text x="489" y="131" class="t-f" font-size="9" text-anchor="middle">no egress</text>
+          <path d="M532 120 L546 120" class="edge" marker-end="url(#a1)"/>
+          <rect x="550" y="96" width="70" height="48" class="n-fill n-stroke" stroke-width="1.2"/>
+          <text x="585" y="117" class="t" font-size="10.5" text-anchor="middle">snapshot</text>
+          <text x="585" y="131" class="t-f" font-size="9" text-anchor="middle">baseline</text>
+          <path d="M630 120 L658 120" class="edge" marker-end="url(#a1)"/>
+
+          <!-- D: graph -->
+          <rect x="664" y="92" width="180" height="56" class="acc-fill acc-stroke" stroke-width="1.5"/>
+          <text x="754" y="115" class="t-a" font-size="12.5" text-anchor="middle" font-weight="600">agent graph</text>
+          <text x="754" y="132" class="t-a" font-size="9.5" text-anchor="middle">retrieve → … → summarize</text>
+          <path d="M844 120 L872 120" class="edge" marker-end="url(#a1)"/>
+
+          <!-- E: publish -->
+          <rect x="878" y="92" width="194" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="975" y="115" class="t" font-size="12" text-anchor="middle">fork → push → PR</text>
+          <text x="975" y="132" class="t-f" font-size="9.5" text-anchor="middle">feature-pilot/issue-&lt;n&gt;-&lt;slug&gt;</text>
+
+          <!-- undernotes -->
+          <path d="M8 196 L1072 196" stroke="var(--rule)" stroke-width="1"/>
+          <text x="8" y="214" class="t-f" font-size="10">baseline test run happens here — pre-existing failures are recorded before any edit,</text>
+          <text x="8" y="230" class="t-f" font-size="10">so a red suite later can be attributed to the patch rather than to the repository.</text>
+        </svg>
+      </div>
+      <figcaption><b>Fig 1 — the run.</b> Install must precede the network cut, and the snapshot must
+        follow the install: snapshotting first would make the repair loop's <code>restore()</code> delete
+        the dependencies. The two amber gates are the only points where the run waits on a person —
+        the first is a graph interrupt, the second a separate API call.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================= 2 ============================= -->
+  <section>
+    <div class="sechead">
+      <span class="num">02</span>
+      <h2>The graph, and the router that is not a model</h2>
+    </div>
+
+    <div class="prose">
+      <p>Eight nodes, one conditional edge each, all pointing at the same function. There is no
+        supervisor vertex, because there is nothing for one to decide: the next node follows from
+        <code>(phase, last typed output)</code>. Every node returns a Pydantic contract rather than prose,
+        which is what makes that possible — routing reads <code>tests.success</code>, not a paragraph
+        about how the tests went.</p>
+      <p>So the supervisor is a pure function. It costs zero tokens, adds zero latency on every
+        transition, and is unit-testable with no model and no container.</p>
+    </div>
+
+    <figure>
+      <div class="plate">
+        <svg viewBox="0 0 1000 566" role="img" aria-label="The agent graph: start goes to retrieve, then plan, then the approval interrupt. Approve routes to code, reject routes back to plan. Code goes to test. A passing suite goes to review, a failing one to debug. Debug either returns to code, closing the repair loop, or ends the run. Review either sends work back to code or continues to summarize and end.">
+          <defs>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <!-- ROW 1 -->
+          <rect x="24" y="56" width="66" height="56" rx="28" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="57" y="90" class="t-m" font-size="11" text-anchor="middle">START</text>
+          <path d="M90 84 L124 84" class="edge" marker-end="url(#a2)"/>
+
+          <rect x="130" y="56" width="140" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="200" y="80" class="t" font-size="13" text-anchor="middle">retrieve</text>
+          <text x="200" y="97" class="t-f" font-size="9.5" text-anchor="middle">RetrieverOutput</text>
+          <path d="M270 84 L304 84" class="edge" marker-end="url(#a2)"/>
+
+          <rect x="310" y="56" width="140" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="380" y="80" class="t" font-size="13" text-anchor="middle">plan</text>
+          <text x="380" y="97" class="t-f" font-size="9.5" text-anchor="middle">PlannerOutput</text>
+          <path d="M450 84 L484 84" class="edge" marker-end="url(#a2)"/>
+
+          <rect x="490" y="56" width="140" height="56" class="sig-fill sig-stroke" stroke-width="1.5"/>
+          <text x="560" y="80" class="t-s" font-size="13" text-anchor="middle" font-weight="600">approval</text>
+          <text x="560" y="97" class="t-s" font-size="9.5" text-anchor="middle">HumanDecision</text>
+          <text x="646" y="80" class="t-s" font-size="10">interrupt() —</text>
+          <text x="646" y="94" class="t-s" font-size="10">checkpoint persists,</text>
+          <text x="646" y="108" class="t-s" font-size="10">the process may exit</text>
+
+          <!-- reject: approval -> plan (above row 1) -->
+          <path d="M560 56 L560 26 L380 26 L380 56" class="edge-s dash" marker-end="url(#a2)"/>
+          <text x="470" y="20" class="t-s" font-size="10.5" text-anchor="middle">verdict = reject → re-plan with the feedback</text>
+
+          <!-- ROW 2 -->
+          <rect x="310" y="210" width="140" height="56" class="acc-fill acc-stroke" stroke-width="1.6"/>
+          <text x="380" y="234" class="t-a" font-size="13" text-anchor="middle" font-weight="600">code</text>
+          <text x="380" y="251" class="t-a" font-size="9.5" text-anchor="middle">CoderOutput</text>
+
+          <rect x="490" y="210" width="140" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="560" y="234" class="t" font-size="13" text-anchor="middle">test</text>
+          <text x="560" y="251" class="t-f" font-size="9.5" text-anchor="middle">TesterOutput</text>
+
+          <rect x="670" y="210" width="140" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="740" y="234" class="t" font-size="13" text-anchor="middle">review</text>
+          <text x="740" y="251" class="t-f" font-size="9.5" text-anchor="middle">ReviewerOutput</text>
+
+          <!-- approve: approval -> code, entering code's left edge -->
+          <path d="M560 112 L560 146 L272 146 L272 238 L304 238" class="edge-s" marker-end="url(#a2)"/>
+          <text x="352" y="140" class="t-s" font-size="10.5">verdict = approve</text>
+
+          <!-- code -> test -->
+          <path d="M450 238 L484 238" class="edge" marker-end="url(#a2)"/>
+          <!-- test -> review (green) -->
+          <path d="M630 238 L664 238" class="edge-p" marker-end="url(#a2)"/>
+          <text x="647" y="226" class="t-p" font-size="10" text-anchor="middle">✓</text>
+          <text x="647" y="262" class="t-p" font-size="9.5" text-anchor="middle">success</text>
+
+          <!-- test -> debug (red) -->
+          <path d="M560 266 L560 358" class="edge-x" marker-end="url(#a2)"/>
+          <text x="570" y="300" class="t-x" font-size="10.5">✗ tests.success = false</text>
+          <text x="570" y="315" class="t-f" font-size="9.5">judged against the baseline,</text>
+          <text x="570" y="328" class="t-f" font-size="9.5">not against a green suite</text>
+
+          <!-- ROW 3 -->
+          <rect x="490" y="364" width="140" height="56" class="acc-fill acc-stroke" stroke-width="1.6"/>
+          <text x="560" y="388" class="t-a" font-size="13" text-anchor="middle" font-weight="600">debug</text>
+          <text x="560" y="405" class="t-a" font-size="9.5" text-anchor="middle">DebuggerOutput</text>
+
+          <rect x="670" y="364" width="140" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="740" y="388" class="t" font-size="13" text-anchor="middle">summarize</text>
+          <text x="740" y="405" class="t-f" font-size="9.5" text-anchor="middle">PRSummary</text>
+
+          <!-- debug -> code : the repair loop -->
+          <path d="M490 392 L350 392 L350 272" class="edge-a" marker-end="url(#a2)"/>
+          <text x="196" y="376" class="t-a" font-size="11.5" font-weight="600">the repair loop</text>
+          <text x="196" y="410" class="t-a" font-size="10.5">diagnosis.retry ∧</text>
+          <text x="196" y="424" class="t-a" font-size="10.5">attempt &lt; 3</text>
+
+          <!-- review -> code (reject), above row 2 -->
+          <path d="M740 210 L740 178 L380 178 L380 204" class="edge-m dash" marker-end="url(#a2)"/>
+          <text x="560" y="172" class="t-m" font-size="10.5" text-anchor="middle">review.verdict = reject ∧ attempt &lt; 3 — green is necessary, not sufficient</text>
+
+          <!-- review -> summarize -->
+          <path d="M740 266 L740 358" class="edge" marker-end="url(#a2)"/>
+          <text x="750" y="316" class="t-m" font-size="10.5">approve</text>
+
+          <!-- END -->
+          <rect x="700" y="472" width="80" height="32" rx="16" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="740" y="493" class="t-m" font-size="11" text-anchor="middle">END</text>
+          <path d="M740 420 L740 466" class="edge" marker-end="url(#a2)"/>
+
+          <!-- debug -> END (give up) -->
+          <path d="M630 392 L660 392 L660 488 L694 488" class="edge-x dash" marker-end="url(#a2)"/>
+          <text x="386" y="450" class="t-x" font-size="10.5">¬retry ∨ attempt ≥ 3 — give up,</text>
+          <text x="386" y="464" class="t-x" font-size="10.5">with a clear failure</text>
+
+          <!-- router annotation -->
+          <rect x="24" y="430" width="240" height="126" class="grp" stroke="var(--rule)" stroke-width="1"/>
+          <text x="40" y="454" class="t-a" font-size="11" font-weight="600">route(state) — pure</text>
+          <text x="40" y="473" class="t-m" font-size="10">reads phase + one typed field.</text>
+          <text x="40" y="488" class="t-m" font-size="10">No I/O, no mutation, no model.</text>
+          <text x="40" y="510" class="t-f" font-size="10">Every edge above is the same</text>
+          <text x="40" y="524" class="t-f" font-size="10">function, wired eight times.</text>
+          <text x="40" y="546" class="t-f" font-size="10">solid = forward · dashed = back</text>
+        </svg>
+      </div>
+      <figcaption><b>Fig 2 — <code>graph/build.py</code> + <code>graph/router.py</code>.</b>
+        Two edges make this an agent rather than a one-shot patcher: <span style="color:var(--accent)">debug → code</span>
+        and review → code. The router checks the rejection verdict <i>before</i> the “is there a plan”
+        test — without that ordering a rejected plan is still in state, and the run oscillates between
+        approve and reject forever.</figcaption>
+    </figure>
+
+    <h3>Phase is a field, not an inference</h3>
+    <div class="prose">
+      <p>Progress lives in one <code>RunPhase</code> enum on the state, with a legal-transition table.
+        Resume reads one field; illegal transitions raise instead of quietly doing the wrong thing.
+        <code>FAILED</code> is reachable from any non-terminal phase and is not listed per row.</p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>phase</th><th>may go to</th><th>why that edge exists</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>CREATED</td><td>INDEXING · PLANNING · CODING</td><td><span class="note">CODING direct only when retrieval and planning are both ablated off</span></td></tr>
+          <tr><td>INDEXING</td><td>PLANNING</td><td><span class="note">declared now, entered only by an index-backed retriever</span></td></tr>
+          <tr><td>PLANNING</td><td>WAITING_APPROVAL · CODING</td><td><span class="note">the gate is skippable with <code>--yes</code></span></td></tr>
+          <tr><td>WAITING_APPROVAL</td><td>CODING · PLANNING</td><td><span class="note">a human may reject and send the plan back</span></td></tr>
+          <tr><td>CODING</td><td>TESTING · REVIEW</td><td><span class="note">REVIEW direct when the tester is ablated off</span></td></tr>
+          <tr><td>TESTING</td><td>REVIEW · DEBUGGING · DONE</td><td><span class="note">green → review, red → debug</span></td></tr>
+          <tr><td>DEBUGGING</td><td>CODING</td><td><span class="note">the repair loop</span></td></tr>
+          <tr><td>REVIEW</td><td>DONE · CODING</td><td><span class="note">rejection sends the work back to the coder</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================= 3 ============================= -->
+  <section>
+    <div class="sechead">
+      <span class="num">03</span>
+      <h2>Retrieval, decomposed so it could be blamed</h2>
+    </div>
+
+    <div class="prose">
+      <p>The <code>retrieve</code> node is four modules behind a <code>Retriever</code> protocol, each
+        benchmarked on its own against ground truth from real bugfix commits. That split is what let the
+        measurement land somewhere specific instead of on “retrieval”.</p>
+    </div>
+
+    <figure>
+      <div class="plate">
+        <svg viewBox="0 0 1040 236" role="img" aria-label="Retrieval pipeline: issue text into a query generator, a filesystem retriever, a content ranker, and a context builder, producing scored chunks. Measurement placed the failure in the ranker: precision at three rose from 0.33 to 0.83.">
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <rect x="8" y="62" width="104" height="58" rx="29" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="60" y="88" class="t" font-size="11.5" text-anchor="middle">issue text</text>
+          <text x="60" y="104" class="t-f" font-size="9" text-anchor="middle">prose + repro</text>
+          <path d="M112 91 L130 91" class="edge" marker-end="url(#a3)"/>
+
+          <rect x="136" y="62" width="170" height="58" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="221" y="86" class="t" font-size="12" text-anchor="middle">query generator</text>
+          <text x="221" y="103" class="t-f" font-size="9.5" text-anchor="middle">retrieval/query.py</text>
+          <path d="M306 91 L324 91" class="edge" marker-end="url(#a3)"/>
+
+          <rect x="330" y="62" width="170" height="58" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="415" y="86" class="t" font-size="12" text-anchor="middle">retriever</text>
+          <text x="415" y="103" class="t-f" font-size="9.5" text-anchor="middle">glob · grep over /work</text>
+          <path d="M500 91 L518 91" class="edge" marker-end="url(#a3)"/>
+
+          <rect x="524" y="62" width="170" height="58" class="acc-fill acc-stroke" stroke-width="1.6"/>
+          <text x="609" y="86" class="t-a" font-size="12" text-anchor="middle" font-weight="600">ranker</text>
+          <text x="609" y="103" class="t-a" font-size="9.5" text-anchor="middle">retrieval/ranker.py</text>
+          <path d="M694 91 L712 91" class="edge" marker-end="url(#a3)"/>
+
+          <rect x="718" y="62" width="170" height="58" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="803" y="86" class="t" font-size="12" text-anchor="middle">context builder</text>
+          <text x="803" y="103" class="t-f" font-size="9.5" text-anchor="middle">top-k = 8</text>
+          <path d="M888 91 L906 91" class="edge" marker-end="url(#a3)"/>
+
+          <rect x="912" y="62" width="120" height="58" rx="8" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="972" y="86" class="t" font-size="11.5" text-anchor="middle">chunks</text>
+          <text x="972" y="102" class="t-f" font-size="9" text-anchor="middle">path · score · why</text>
+
+          <!-- verdict lane -->
+          <text x="8" y="34" class="t-f" font-size="10" letter-spacing="1">MEASURED VERDICT, PER MODULE</text>
+          <path d="M8 44 L1032 44" stroke="var(--rule)" stroke-width="1"/>
+
+          <text x="221" y="150" class="t-m" font-size="10" text-anchor="middle">region-aware terms:</text>
+          <text x="221" y="164" class="t-m" font-size="10" text-anchor="middle">context −34%, P@3 ±0</text>
+          <text x="221" y="184" class="t-f" font-size="9.5" text-anchor="middle">backticks mostly hold</text>
+          <text x="221" y="196" class="t-f" font-size="9.5" text-anchor="middle">the repro, not the code</text>
+
+          <text x="415" y="150" class="t-m" font-size="10" text-anchor="middle">recall was already 6/6</text>
+          <text x="415" y="164" class="t-m" font-size="10" text-anchor="middle">before ranking ran</text>
+          <text x="415" y="184" class="t-f" font-size="9.5" text-anchor="middle">improving search here</text>
+          <text x="415" y="196" class="t-f" font-size="9.5" text-anchor="middle">was worth nothing</text>
+
+          <text x="609" y="150" class="t-a" font-size="11" text-anchor="middle" font-weight="600">P@3 0.33 → 0.83</text>
+          <text x="609" y="164" class="t-a" font-size="10" text-anchor="middle">the whole problem</text>
+          <text x="609" y="184" class="t-f" font-size="9.5" text-anchor="middle">score content, never path:</text>
+          <text x="609" y="196" class="t-f" font-size="9.5" text-anchor="middle">defines &gt; imports &gt; calls</text>
+
+          <text x="803" y="150" class="t-m" font-size="10" text-anchor="middle">whole-file vs windowed</text>
+          <text x="803" y="164" class="t-m" font-size="10" text-anchor="middle">moved tokens 2.6%</text>
+          <text x="803" y="184" class="t-f" font-size="9.5" text-anchor="middle">a cap upstream was</text>
+          <text x="803" y="196" class="t-f" font-size="9.5" text-anchor="middle">already binding</text>
+
+          <path d="M609 120 L609 138" class="edge-a" marker-end="url(#a3)"/>
+        </svg>
+      </div>
+      <figcaption><b>Fig 3 — <code>retrieval/</code>.</b> Ranking by “how many queried terms does this file
+        mention” hands the win to tests and changelogs by construction: a unit test calls
+        <code>click.confirm(...)</code> five times where the implementation writes <code>def confirm(...)</code>
+        once. The objective was wrong, not the search. One factory builds these strategies for both the
+        agent and the offline benchmark — they diverged once, and the benchmark measured a ranker
+        production was not using.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================= 4 ============================= -->
+  <section>
+    <div class="sechead">
+      <span class="num">04</span>
+      <h2>Where the agent's hands are</h2>
+    </div>
+
+    <div class="prose">
+      <p>Nodes never import LangChain or MCP types. They ask a <code>ToolRegistry</code>, which is
+        populated by discovery over MCP at run start — so a test can hand a node fakes with no MCP
+        process anywhere. Every tool ultimately lands inside one container that is destroyed with the run.</p>
+    </div>
+
+    <figure>
+      <div class="plate">
+        <svg viewBox="0 0 1000 350" role="img" aria-label="Execution boundary: a graph node calls the tool registry, which speaks MCP over stdio to a filesystem server and a terminal server. Both act only inside a Docker container running as an unprivileged user with all capabilities dropped and the network disconnected. Commands are parsed with shlex and passed as argv, never through a shell.">
+          <defs>
+            <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <rect x="12" y="140" width="130" height="58" class="acc-fill acc-stroke" stroke-width="1.5"/>
+          <text x="77" y="164" class="t-a" font-size="12" text-anchor="middle" font-weight="600">graph node</text>
+          <text x="77" y="181" class="t-a" font-size="9.5" text-anchor="middle">coder · debugger …</text>
+          <path d="M142 169 L180 169" class="edge" marker-end="url(#a4)"/>
+
+          <rect x="186" y="140" width="150" height="58" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="261" y="164" class="t" font-size="12" text-anchor="middle">ToolRegistry</text>
+          <text x="261" y="181" class="t-f" font-size="9.5" text-anchor="middle">no LangChain types</text>
+
+          <path d="M336 158 L366 158 L366 114 L390 114" class="edge" marker-end="url(#a4)"/>
+          <path d="M336 180 L366 180 L366 224 L390 224" class="edge" marker-end="url(#a4)"/>
+          <text x="352" y="140" class="t-f" font-size="9.5">MCP</text>
+          <text x="352" y="152" class="t-f" font-size="9.5">stdio</text>
+
+          <rect x="396" y="88" width="164" height="52" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="478" y="110" class="t" font-size="11.5" text-anchor="middle">filesystem_server</text>
+          <text x="478" y="126" class="t-f" font-size="9" text-anchor="middle">read · edit · write · glob · grep</text>
+
+          <rect x="396" y="198" width="164" height="52" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="478" y="220" class="t" font-size="11.5" text-anchor="middle">terminal_server</text>
+          <text x="478" y="236" class="t-f" font-size="9" text-anchor="middle">run_command · run_tests</text>
+
+          <!-- container -->
+          <rect x="610" y="34" width="380" height="278" class="grp" stroke="var(--rule)" stroke-width="1.4" stroke-dasharray="6 4"/>
+          <text x="626" y="56" class="t-f" font-size="10" letter-spacing="1">DOCKER · DESTROYED WITH THE RUN</text>
+
+          <path d="M560 114 L604 114" class="edge" marker-end="url(#a4)"/>
+          <path d="M560 224 L604 224" class="edge" marker-end="url(#a4)"/>
+
+          <rect x="626" y="86" width="180" height="54" class="n-fill n-stroke" stroke-width="1.2"/>
+          <text x="716" y="108" class="t" font-size="11.5" text-anchor="middle">/work</text>
+          <text x="716" y="124" class="t-f" font-size="9" text-anchor="middle">copy of the clone</text>
+
+          <rect x="626" y="196" width="180" height="54" class="n-fill n-stroke" stroke-width="1.2"/>
+          <text x="716" y="218" class="t" font-size="11.5" text-anchor="middle">pytest -q</text>
+          <text x="716" y="234" class="t-f" font-size="9" text-anchor="middle">shlex → argv → execve</text>
+
+          <text x="826" y="92" class="t-f" font-size="10">uid 10001, non-root</text>
+          <text x="826" y="110" class="t-f" font-size="10">cap_drop = ALL</text>
+          <text x="826" y="128" class="t-f" font-size="10">no-new-privileges</text>
+          <text x="826" y="146" class="t-f" font-size="10">2 GB · 2 CPU</text>
+          <text x="826" y="164" class="t-f" font-size="10">pids ≤ 512</text>
+          <text x="826" y="186" class="t-s" font-size="10">network: none</text>
+          <text x="826" y="204" class="t-s" font-size="10">exec allowlist —</text>
+          <text x="826" y="218" class="t-s" font-size="10">no bash, sh, curl,</text>
+          <text x="826" y="232" class="t-s" font-size="10">wget, nc, ssh, sudo</text>
+
+          <text x="626" y="270" class="t-f" font-size="10">paths resolve against /work — rejects .. escapes,</text>
+          <text x="626" y="284" class="t-f" font-size="10">absolute paths, null bytes, and /workshop, which</text>
+          <text x="626" y="298" class="t-f" font-size="10">a naive /work prefix check accepts. 28 pure tests.</text>
+
+          <text x="12" y="328" class="t-f" font-size="10">The repair loop's restore() rolls /work back to the post-install snapshot,</text>
+          <text x="12" y="342" class="t-f" font-size="10">so attempt two starts from clean source, not on top of a failed patch.</text>
+        </svg>
+      </div>
+      <figcaption><b>Fig 4 — <code>tools/registry.py</code>, <code>mcp/servers/</code>, <code>sandbox/runner.py</code>.</b>
+        Agent commands never reach a shell: they are parsed with <code>shlex</code> and passed as argv
+        straight to <code>execve</code>, so chaining is structurally impossible rather than
+        blocklist-dependent. A Docker test proves it — <code>echo $(id -u)</code> returns the literal string.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================= 5 ============================= -->
+  <section>
+    <div class="sechead">
+      <span class="num">05</span>
+      <h2>Driving and watching a run</h2>
+    </div>
+
+    <div class="prose">
+      <p>The graph emits one <code>MetricEvent</code> per node boundary, tool call, model call and phase
+        change. A composite sink fans those out: Postgres for the durable log and its projections, Redis
+        for the per-run channel the SSE endpoint subscribes to, and <code>.fp/runs/&lt;id&gt;/</code> for bulk
+        artifacts — the diff, the test output, the context that was actually sent.</p>
+    </div>
+
+    <figure>
+      <div class="plate">
+        <svg viewBox="0 0 1000 412" role="img" aria-label="Control plane: the Next.js UI posts commands to FastAPI, which hands them to a run manager holding concurrency slots and a daily budget, which drives the agent run. The run emits metric events to Postgres, Redis and the local artifact directory. The UI receives events back over server-sent events from the Redis channel, and separately polls the run status as a fallback for the approval gate.">
+          <defs>
+            <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <!-- browser lane -->
+          <rect x="16" y="56" width="190" height="260" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="111" y="82" class="t" font-size="12.5" text-anchor="middle" font-weight="600">Next.js UI</text>
+          <text x="111" y="99" class="t-f" font-size="9.5" text-anchor="middle">phase rail · feed · diff</text>
+          <path d="M40 116 L182 116" stroke="var(--rule)" stroke-width="1"/>
+          <text x="111" y="140" class="t-m" font-size="10" text-anchor="middle">GateCard renders from</text>
+          <text x="111" y="154" class="t-m" font-size="10" text-anchor="middle">whichever channel</text>
+          <text x="111" y="168" class="t-m" font-size="10" text-anchor="middle">reports the gate first</text>
+          <text x="111" y="200" class="t-f" font-size="9.5" text-anchor="middle">a stream and a poll can</text>
+          <text x="111" y="214" class="t-f" font-size="9.5" text-anchor="middle">disagree; the gate must</text>
+          <text x="111" y="228" class="t-f" font-size="9.5" text-anchor="middle">appear either way</text>
+
+          <!-- commands out -->
+          <path d="M206 74 L280 74" class="edge" marker-end="url(#a5)"/>
+          <text x="243" y="66" class="t-f" font-size="9.5" text-anchor="middle">POST</text>
+          <!-- poll back -->
+          <path d="M280 100 L212 100" class="edge-m dash" marker-end="url(#a5)"/>
+          <text x="246" y="114" class="t-f" font-size="9.5" text-anchor="middle">poll</text>
+
+          <rect x="286" y="56" width="180" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="376" y="80" class="t" font-size="12.5" text-anchor="middle">FastAPI</text>
+          <text x="376" y="97" class="t-f" font-size="9.5" text-anchor="middle">/runs · /approve · /publish</text>
+
+          <path d="M376 112 L376 152" class="edge" marker-end="url(#a5)"/>
+
+          <rect x="286" y="158" width="180" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="376" y="182" class="t" font-size="12.5" text-anchor="middle">RunManager</text>
+          <text x="376" y="199" class="t-f" font-size="9.5" text-anchor="middle">2 slots · daily USD cap</text>
+
+          <path d="M376 214 L376 254" class="edge" marker-end="url(#a5)"/>
+
+          <rect x="286" y="260" width="180" height="56" class="acc-fill acc-stroke" stroke-width="1.6"/>
+          <text x="376" y="284" class="t-a" font-size="12.5" text-anchor="middle" font-weight="600">open_run + graph</text>
+          <text x="376" y="301" class="t-a" font-size="9.5" text-anchor="middle">one sandbox per run</text>
+
+          <!-- fan out to sinks -->
+          <path d="M466 288 L516 288 L516 94" class="edge"/>
+          <path d="M516 94 L560 94" class="edge" marker-end="url(#a5)"/>
+          <path d="M516 186 L560 186" class="edge" marker-end="url(#a5)"/>
+          <path d="M516 288 L560 288" class="edge" marker-end="url(#a5)"/>
+          <text x="524" y="330" class="t-f" font-size="10">MetricEvent</text>
+          <text x="524" y="344" class="t-f" font-size="10">run_started · phase_changed ·</text>
+          <text x="524" y="358" class="t-f" font-size="10">tool_called · model_called ·</text>
+          <text x="524" y="372" class="t-f" font-size="10">awaiting_human · artifact</text>
+
+          <rect x="566" y="56" width="196" height="76" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="664" y="80" class="t" font-size="12" text-anchor="middle">Postgres</text>
+          <text x="664" y="97" class="t-f" font-size="9.5" text-anchor="middle">append-only event log</text>
+          <text x="664" y="111" class="t-f" font-size="9.5" text-anchor="middle">+ aggregate projections</text>
+          <text x="664" y="125" class="t-f" font-size="9.5" text-anchor="middle">+ AsyncPostgresSaver</text>
+
+          <rect x="566" y="158" width="196" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="664" y="182" class="t" font-size="12" text-anchor="middle">Redis</text>
+          <text x="664" y="199" class="t-f" font-size="9.5" text-anchor="middle">channel per run_id</text>
+
+          <rect x="566" y="260" width="196" height="56" class="n-fill n-stroke" stroke-width="1.3"/>
+          <text x="664" y="284" class="t" font-size="12" text-anchor="middle">.fp/runs/&lt;id&gt;/</text>
+          <text x="664" y="301" class="t-f" font-size="9.5" text-anchor="middle">diff · test output · context</text>
+
+          <!-- checkpoint edge -->
+          <path d="M466 270 L500 270 L500 40 L802 40 L802 74 L768 74" class="edge-m dash" marker-end="url(#a5)"/>
+          <text x="812" y="44" class="t-f" font-size="9.5">checkpoint after every node —</text>
+          <text x="812" y="58" class="t-f" font-size="9.5">the interrupt survives a restart</text>
+
+          <!-- SSE return -->
+          <path d="M762 186 L820 186 L820 388 L111 388 L111 322" class="edge-a" marker-end="url(#a5)"/>
+          <text x="170" y="380" class="t-a" font-size="10.5">SSE ← GET /runs/&lt;id&gt;/stream</text>
+          <text x="170" y="404" class="t-f" font-size="10">unbuffered end to end — flush_interval −1, no proxy buffering</text>
+        </svg>
+      </div>
+      <figcaption><b>Fig 5 — <code>api/</code> + <code>metrics/</code>.</b> The dashed poll edge is not
+        redundancy for its own sake. A reverse proxy that buffers will hold an open SSE stream and flush
+        it only when the run ends, which arrives long after the approval gate needed the human — so the
+        gate is derived from the polled status as well as the stream, and the proxy is configured to
+        flush immediately.</figcaption>
+    </figure>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>endpoint</th><th>does</th></tr></thead>
+        <tbody>
+          <tr><td>POST /runs</td><td><span class="note">Start a run from an issue URL. Reserves a concurrency slot; 201 with the run id.</span></td></tr>
+          <tr><td>GET /runs/{id}</td><td><span class="note">Current phase, spend, and the pending interrupt payload if the graph is parked.</span></td></tr>
+          <tr><td>GET /runs/{id}/stream</td><td><span class="note">SSE over the run's Redis channel — every event, replayed from the start.</span></td></tr>
+          <tr><td>POST /runs/{id}/approve</td><td><span class="note">Answers the interrupt with a <code>HumanDecision</code>; the graph resumes from its checkpoint.</span></td></tr>
+          <tr><td>GET /runs/{id}/artifacts</td><td><span class="note">The diff, the test output, the retrieved context, the PR summary.</span></td></tr>
+          <tr><td>POST /runs/{id}/publish</td><td><span class="note">Gate ②. Branch → patch → commit → fork → force-push → PR. Idempotent per issue.</span></td></tr>
+          <tr><td>DELETE /runs/{id}</td><td><span class="note">Cancel; the sandbox is destroyed and the slot returned on every exit path.</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================= 6 ============================= -->
+  <section>
+    <div class="sechead">
+      <span class="num">06</span>
+      <h2>The seams that make it measurable</h2>
+    </div>
+
+    <div class="prose">
+      <p>Two config-level axes exist so that “the agent” is never one indivisible thing. Stages can be
+        switched off to ask what each one contributes; roles map to models so re-tiering for cost is one
+        edit rather than a hunt through node modules.</p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>stage off</th><th>what the run becomes</th></tr></thead>
+        <tbody>
+          <tr><td>retrieve</td><td><span class="note">Coder works from the issue alone — the control for “does searching the repository help at all”.</span></td></tr>
+          <tr><td>plan</td><td><span class="note">Straight to code, no plan and no approval gate.</span></td></tr>
+          <tr><td>test</td><td><span class="note">Plan and code with no verification; the run hands back whatever was written.</span></td></tr>
+          <tr><td>debug</td><td><span class="note">The failure is detected and not acted on. The run ends rather than reviewing a known-broken patch.</span></td></tr>
+          <tr><td>review</td><td><span class="note">A green suite goes straight to the summary.</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>role</th><th>model</th><th>note</th></tr></thead>
+        <tbody>
+          <tr><td>planner · coder · critic · debugger · reviewer</td><td>claude-sonnet-5</td><td><span class="note">the working tier</span></td></tr>
+          <tr><td>summarizer</td><td>claude-haiku-4-5</td><td><span class="note">writing a PR body is not the hard part</span></td></tr>
+          <tr><td>escalation</td><td>claude-opus-5</td><td><span class="note">final retry only, where another failed attempt costs more than a better model</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note-block">
+      <span class="label">Guard rails, load-bearing</span>
+      <code>max_attempts 3</code> · <code>max_usd_per_run $2.00</code> · <code>request_timeout_s 180</code> ·
+      <code>test_timeout_s 600</code> · <code>sandbox_reap_after_s 3600</code>.
+      Cumulative token budgets are kept only as a runaway backstop: in a tool loop the same context is
+      re-sent every turn, so one piece of information is billed once per iteration and the ceiling measures
+      the transcript rather than the work. Cost is the honest instrument. A <code>BudgetExceeded</code> is
+      terminal by definition — a retry would exceed it too.
+    </div>
+  </section>
+
+  <!-- ============================= map ============================= -->
+  <section>
+    <div class="sechead">
+      <span class="num">07</span>
+      <h2>Where each piece lives</h2>
+    </div>
+
+    <div class="filemap">
+      <div><span class="path">graph/build.py</span><span class="what">wiring, metrics, artifact emission</span></div>
+      <div><span class="path">graph/router.py</span><span class="what">the pure supervisor + ablation stages</span></div>
+      <div><span class="path">graph/nodes/</span><span class="what">retrieve, plan, code, test, debug, review</span></div>
+      <div><span class="path">contracts.py</span><span class="what">the typed outputs routing reads</span></div>
+      <div><span class="path">lifecycle.py</span><span class="what">RunPhase + legal transitions</span></div>
+      <div><span class="path">run.py</span><span class="what">sandbox, MCP, checkpointer, streaming</span></div>
+      <div><span class="path">retrieval/</span><span class="what">query, retriever, ranker, strategies</span></div>
+      <div><span class="path">sandbox/runner.py</span><span class="what">container, path validation, exec allowlist</span></div>
+      <div><span class="path">mcp/servers/</span><span class="what">filesystem and terminal tool servers</span></div>
+      <div><span class="path">tools/registry.py</span><span class="what">the seam nodes call instead of MCP</span></div>
+      <div><span class="path">api/manager.py</span><span class="what">slots, budget, drive, publish</span></div>
+      <div><span class="path">metrics/sinks.py</span><span class="what">Postgres, Redis, file artifacts</span></div>
+      <div><span class="path">github/publish.py</span><span class="what">branch → patch → fork → push → PR</span></div>
+      <div><span class="path">web/src/</span><span class="what">phase rail, feed, gate card, diff</span></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Feature Pilot · LangGraph · MCP · Docker</span>
+    <span>436 offline tests + 30 gated behind real infrastructure</span>
+    <span>tests/test_graph.py runs the full loop with no network and no container</span>
+  </footer>
+
+</div>
+</body>
+</html>
