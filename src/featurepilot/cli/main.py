@@ -583,16 +583,6 @@ def doctor() -> None:
     except GhError as exc:
         table.add_row("gh", "[yellow]absent[/yellow]", f"no PR publishing — {str(exc)[:44]}")
 
-    # Only when a model routes through Bedrock: the failure mode is boto3
-    # missing (a sync away) rather than a bad key (boto3's chain owns those).
-    if any(m.startswith("bedrock/") for m in settings._configured_models()):
-        try:
-            import boto3  # noqa: F401
-
-            table.add_row("bedrock", "[green]ok[/green]", f"boto3 + region {settings.aws_region}")
-        except ImportError:
-            table.add_row("bedrock", "[red]missing[/red]", "boto3 absent — uv sync --extra aws")
-
     for role in (Role.PLANNER, Role.CODER, Role.REVIEWER):
         table.add_row(f"model:{role}", "[green]ok[/green]", settings.model_for(role))
 

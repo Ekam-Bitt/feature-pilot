@@ -7,7 +7,6 @@ local fallback, so nothing here may be `Field(...)`-required except that one.
 
 from __future__ import annotations
 
-import importlib.util
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -37,12 +36,7 @@ STANDARD_ENV_NAMES: dict[str, str] = {
     "postgres_dsn": "DATABASE_URL",
     "redis_url": "REDIS_URL",
     "github_token": "GITHUB_TOKEN",
-    "aws_region": "AWS_REGION",
 }
-
-
-def _boto3_available() -> bool:
-    return importlib.util.find_spec("boto3") is not None
 
 
 def env_alias(field_name: str) -> str:
@@ -150,9 +144,6 @@ class Settings(BaseSettings):
     # Publishing PRs. Absent => gh's ambient `gh auth` credential is used.
     github_token: SecretStr | None = None
 
-    # Only read when a model is bedrock/*; LiteLLM hands it to boto3.
-    aws_region: str = "us-east-1"
-
     # Absent VOYAGE key => local fastembed. Keeps the repo free and offline.
     voyage_api_key: SecretStr | None = None
     embed_model_local: str = "BAAI/bge-small-en-v1.5"
@@ -227,14 +218,6 @@ class Settings(BaseSettings):
                 "ANTHROPIC_API_KEY is unset but these roles use hosted Anthropic "
                 f"models: {sorted(set(hosted))}. Either set the key, or point the "
                 "FP_MODEL_* settings at a local provider (e.g. ollama/qwen2.5-coder)."
-            )
-        # Bedrock has no static key to check — boto3's credential chain covers
-        # env vars, ~/.aws, and EC2 instance roles — but the SDK must exist.
-        bedrock = [m for m in self._configured_models() if m.startswith("bedrock/")]
-        if bedrock and not _boto3_available():
-            raise ValueError(
-                f"these roles use Bedrock models but boto3 is not installed: "
-                f"{sorted(set(bedrock))}. Install it with `uv sync --extra aws`."
             )
         return self
 

@@ -9,7 +9,7 @@
 # one, which rules them out at any price. Oracle's Always Free tier is the only
 # genuinely free always-on host that provides it.
 #
-# Unlike the AWS console, OCI does not conjure networking for you: a VCN, an
+# The OCI console does not conjure networking for you: a VCN, an
 # internet gateway, a route table, a security list and a subnet all have to be
 # declared before an instance can have a public address.
 

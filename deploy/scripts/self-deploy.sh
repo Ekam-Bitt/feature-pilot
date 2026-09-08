@@ -30,9 +30,7 @@ echo "deploying ${local_sha:0:9} -> ${remote_sha:0:9}"
 # gitignored, so credentials survive.
 git reset --hard --quiet "origin/$BRANCH"
 
-# --extra aws so a bedrock/* model stays a config change: without boto3 the
-# settings validator refuses those ids and the service will not start.
-/usr/local/bin/uv sync --frozen --extra aws --quiet
+/usr/local/bin/uv sync --frozen --quiet
 
 # Datastores rarely change, but a compose edit should land without a manual
 # step. Idempotent when nothing changed.

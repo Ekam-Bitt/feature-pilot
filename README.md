@@ -318,7 +318,7 @@ fix. Both are reported per case so results can be segmented instead of averaged.
 
 - Docker (datastores + the per-run sandbox)
 - Python 3.13, via [`uv`](https://docs.astral.sh/uv/)
-- An Anthropic API key — or AWS credentials, to run on Bedrock instead
+- An Anthropic API key
 - [`gh`](https://cli.github.com), authenticated — only to publish pull requests
 
 ## Quickstart
@@ -359,21 +359,6 @@ curl -XPOST localhost:8080/runs/{id}/publish -d '{"draft":true}' \
 ```
 
 `GITHUB_TOKEN` is used when set; otherwise `gh`'s own credential is.
-
-### Running the models on AWS Bedrock
-
-```bash
-uv sync --extra aws
-FP_MODEL_CODER=bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0 uv run fpilot doctor
-```
-
-Point any `FP_MODEL_*` setting at a `bedrock/...` inference profile. Credentials
-come from boto3's chain — environment, `~/.aws`, or an EC2 instance role — so a
-fully-Bedrock configuration needs no `ANTHROPIC_API_KEY` at all. Cost accounting
-works unchanged: LiteLLM prices the profile ids from its local map. See
-`.env.example` for a complete Bedrock block, and
-[deploy/README.md](deploy/README.md) to run the whole thing on EC2 with an
-instance role and no keys on the host.
 
 `ANTHROPIC_API_KEY` is the only value you must set. Everything else has a working
 local default — embeddings run offline, tracing is a no-op without a LangSmith key,

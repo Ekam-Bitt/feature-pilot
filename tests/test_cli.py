@@ -116,17 +116,6 @@ class TestDoctor:
         output = _run()
         assert "publish" in output.lower()
 
-    def test_bedrock_row_appears_when_a_model_uses_it(
-        self, stub_probes: None, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv(
-            "FP_MODEL_SUMMARIZER", "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
-        )
-        assert "bedrock" in _run()
-
-    def test_no_bedrock_row_without_bedrock_models(self, stub_probes: None) -> None:
-        assert "bedrock" not in _run()
-
     def test_checks_every_datastore_a_run_touches(self, stub_probes: None) -> None:
         """A regression guard on omission rather than on wording: the failure this
         file exists for was a check that was never written, which no assertion

@@ -133,23 +133,6 @@ def configure_tracing(settings: Settings) -> bool:
     return True
 
 
-def _export_provider_keys(settings: Settings) -> None:
-    """Export the non-secret provider settings LiteLLM only reads from the
-    environment.
-
-    Secrets are not exported. They ride the model instance instead, because a
-    run's credentials must not be visible to another run in the same process.
-    """
-    # The Anthropic key is deliberately *not* exported: it travels on the model
-    # instance (see chat_model) so that per-run credentials cannot collide.
-    # Bedrock credentials come from boto3's own chain (env, ~/.aws, instance
-    # role); the region is the one thing LiteLLM still needs told, and a region
-    # is not a secret, so process-wide is fine for it.
-    uses_bedrock = any(m.startswith("bedrock/") for m in settings._configured_models())
-    if uses_bedrock and not os.environ.get("AWS_REGION"):
-        os.environ["AWS_REGION"] = settings.aws_region
-
-
 def chat_model(
     role: Role,
     *,
@@ -165,19 +148,15 @@ def chat_model(
     from langchain_litellm import ChatLiteLLM
 
     settings = settings or get_settings()
-    _export_provider_keys(settings)
 
     model = settings.model_escalation if escalate else settings.model_for(role)
     return ChatLiteLLM(
         model=model,
         # Per instance, not per process. A visitor's key belongs to their run
         # alone: with credentials in `os.environ`, two concurrent runs race and
-        # whichever writes last bills both. Bedrock is unaffected — boto3's
-        # chain has no secret for this project to pass.
+        # whichever writes last bills both.
         api_key=(
-            settings.anthropic_api_key.get_secret_value()
-            if settings.anthropic_api_key and not model.startswith("bedrock/")
-            else None
+            settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else None
         ),
         max_tokens=max_tokens or settings.max_tokens_per_call,
         # An explicit deadline and retry count. Without them a large request can

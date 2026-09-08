@@ -1,14 +1,13 @@
 # Deploying Feature Pilot
 
-Three ways to run this off a laptop, in ascending order of commitment:
+Two ways to run this off a laptop:
 
 | | Cost | Good for |
 |---|---|---|
 | **[GitHub Actions](../.github/workflows/solve.yml)** | free on public repos | one-off runs, reproducible demos |
-| **Any free VM + tunnel** (Oracle Always Free) | free | an always-on API a frontend can call |
-| **[AWS EC2](terraform/)** | ~7¢/session, start/stop | Bedrock via instance role, no keys on the box |
+| **Any free VM + tunnel** ([Oracle Always Free](terraform-oci/)) | free | an always-on API a frontend can call |
 
-All three exist because of one constraint: the sandbox drives the Docker API
+Both exist because of one constraint: the sandbox drives the Docker API
 directly (`docker.from_env`, `put_archive`, `exec`), so it needs a **real Docker
 daemon**. Render, Railway, Heroku and Fargate hand you a managed container
 instead, which is why they cannot host this at any price — a capability limit,
@@ -113,97 +112,47 @@ Nothing inbound needs opening beyond SSH: the API is reached through an
 outbound tunnel, so no Oracle security list rule and no dependence on the
 instance keeping its public IP.
 
-## AWS EC2
+### Deploying a change
 
-One host runs everything: the API under systemd, Postgres and Redis in compose,
-and each run's sandbox on the host's Docker daemon. Models route through Bedrock
-using the instance role, so **no API keys are written to the box**.
+Nothing to run. A systemd timer on the host runs
+[`scripts/self-deploy.sh`](scripts/self-deploy.sh), which resets to `main`,
+syncs, restarts the API and health-checks it; it exits immediately when `main`
+has not moved, so it is cheap to run often. CI then confirms the result over
+HTTPS — `/health` reports the commit it is running, and
+[`deploy.yml`](../.github/workflows/deploy.yml) polls for it.
 
-### Cost, honestly
+Pull, not push: the host's SSH is open to a single address and a GitHub runner
+is never at it. The alternative was opening port 22 to the internet so a runner
+could reach in, which trades a real reduction in exposure for a nicer status
+badge.
 
-This account is on the post-2025 **paid** plan: there is no free EC2 tier. The
-deployment is therefore **start/stop**, not always-on.
-
-| | |
-|---|---|
-| t4g.medium running | ~$0.034/hr → **~7¢ for a two-hour session** |
-| 30 GB gp3, while stopped | ~$2.40/month |
-| After `terraform destroy` | $0 (rebuild is one `apply`) |
-| Bedrock tokens | dominates the above in real use |
-
-An always-on host is ~$25/month and would exhaust a small credit balance in
-weeks. `fp-up.sh` / `fp-down.sh` bracket a working session instead.
-
-## One-time setup
-
-**1. Secrets into SSM.** These live outside Terraform on purpose: they survive
-`destroy`/`apply` cycles and never enter terraform state.
+### Verifying a deployment
 
 ```bash
-aws ssm put-parameter --name /featurepilot/github_token \
-  --type SecureString --value "ghp_..." --region us-east-1
-
-# Optional. Omit for a pure-Bedrock host (the instance role covers models).
-aws ssm put-parameter --name /featurepilot/anthropic_api_key \
-  --type SecureString --value "sk-ant-..." --region us-east-1
-```
-
-**2. Bedrock model access.** Once per account, before any model call works:
-submit the Anthropic use-case form (AWS Console → Bedrock → Model access) and
-enable the Claude models. Propagation takes ~15 minutes.
-
-**3. Apply.**
-
-```bash
-cd deploy/terraform
-terraform init
-terraform apply \
-  -var "my_ip_cidr=$(curl -s https://checkip.amazonaws.com)/32" \
-  -var "key_name=<your-ec2-key-pair>"
-```
-
-First boot installs docker, gh, uv, and the project, then starts the API —
-allow a few minutes.
-
-## Daily use
-
-```bash
-deploy/scripts/fp-up.sh      # start; prints the tunnel command
-ssh -N -L 8080:localhost:8080 ec2-user@<ip> &
-curl localhost:8080/health
-deploy/scripts/fp-down.sh    # stop billing
-```
-
-The API binds to `127.0.0.1` and **no security-group rule opens 8080** — it has
-no authentication of its own, so an SSH tunnel is the access path. Only port 22,
-from the single address in `my_ip_cidr`, is reachable.
-
-## Verifying a deployment
-
-```bash
-ssh ec2-user@<ip>
+ssh ubuntu@<instance-ip>
 cd /opt/featurepilot && uv run fpilot doctor
-# expect: docker ok, postgres ok, redis ok, bedrock ok, gh ok
+# expect: anthropic key ok, docker ok, postgres ok, redis ok, gh ok
 uv run fpilot solve https://github.com/<owner>/<repo>/issues/<n> --push --draft
 ```
 
-## When something is missing
+### When something is missing
 
-user-data failures are silent from outside the box:
-
-```bash
-sudo tail -100 /var/log/cloud-init-output.log   # provisioning
-systemctl status featurepilot-api               # the API
-journalctl -u featurepilot-api -n 50            # its logs
-docker ps                                       # datastores + sandboxes
-```
-
-`user_data_replace_on_change = true` means editing the template and re-applying
-rebuilds the instance rather than leaving it half-provisioned.
-
-## Teardown
+Provisioning failures are silent from outside the box:
 
 ```bash
-deploy/scripts/fp-down.sh          # stop, keep the disk
-cd deploy/terraform && terraform destroy   # delete everything (SSM secrets stay)
+sudo tail -100 /var/log/featurepilot-provision.log   # provisioning
+systemctl status featurepilot-api                    # the API
+journalctl -u featurepilot-api -n 50                 # its logs
+systemctl status featurepilot-deploy.timer           # the self-deploy timer
+journalctl -u featurepilot-deploy -n 50              # what it last did
+docker ps                                            # datastores + sandboxes
 ```
+
+### Teardown
+
+```bash
+cd deploy/terraform-oci && terraform destroy
+```
+
+The instance is Always Free, so there is no billing reason to tear it down —
+only a reason to rebuild it, which is one `terraform apply`.

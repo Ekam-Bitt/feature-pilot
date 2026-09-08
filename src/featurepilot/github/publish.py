@@ -109,7 +109,7 @@ class PublishResult:
 
 def _ensure_identity(clone: Path, *, token: str | None = None) -> None:
     """Commits need an author; fall back to the noreply address when the
-    environment has none configured (a fresh EC2 box, CI)."""
+    environment has none configured (a fresh VM, CI)."""
     try:
         client.run_git(clone, "config", "user.email")
         return
