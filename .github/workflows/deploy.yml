@@ -25,6 +25,7 @@ on:
       - "uv.lock"
       - "docker-compose.yml"
       - "scripts/init.sql"
+      - "deploy/scripts/self-deploy.sh"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 

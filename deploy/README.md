@@ -116,15 +116,23 @@ instance keeping its public IP.
 
 Nothing to run. A systemd timer on the host runs
 [`scripts/self-deploy.sh`](scripts/self-deploy.sh), which resets to `main`,
-syncs, restarts the API and health-checks it; it exits immediately when `main`
-has not moved, so it is cheap to run often. CI then confirms the result over
-HTTPS — `/health` reports the commit it is running, and
+syncs, restarts the API and waits for `/health` to report the new commit; it
+exits immediately when the API is already serving what `main` points at, so it
+is cheap to run often. CI then confirms the result over HTTPS — `/health`
+reports the commit it is running, and
 [`deploy.yml`](../.github/workflows/deploy.yml) polls for it.
 
 Pull, not push: the host's SSH is open to a single address and a GitHub runner
 is never at it. The alternative was opening port 22 to the internet so a runner
 could reach in, which trades a real reduction in exposure for a nicer status
 badge.
+
+The script is part of what it deploys, and the copy that runs is the one from
+the commit before the push. A change to what it passes — a `uv sync` extra, say
+— is therefore best landed on its own and allowed to deploy before the commit
+that needs it. Done together, the old copy dies at the sync and the next tick,
+running the new copy, finishes the job, with a failed run in the journal to show
+for it.
 
 ### Verifying a deployment
 
