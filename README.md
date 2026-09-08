@@ -1,7 +1,7 @@
 # Feature Pilot
 
 [![CI](https://github.com/Ekam-Bitt/feature-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/Ekam-Bitt/feature-pilot/actions/workflows/ci.yml)
-![tests](https://img.shields.io/badge/tests-436%20offline%20%2B%2030%20gated-brightgreen)
+![tests](https://img.shields.io/badge/tests-497%20offline%20%2B%2030%20gated-brightgreen)
 ![python](https://img.shields.io/badge/python-3.13-blue)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -10,7 +10,9 @@
 **[Retrospective](docs/engineering-retrospective.md)** ·
 **[Architecture](#architecture)** ·
 **[Evaluation](#evaluation-methodology)** ·
-**[Quickstart](#quickstart)**
+**[Quickstart](#quickstart)** ·
+**[Watch a run](#watching-a-run-in-a-browser)** ·
+**[Deploying](deploy/README.md)**
 
 An autonomous software-engineering agent. Give it a public GitHub issue URL;
 it clones the repository, explores the codebase, writes a plan for you to
@@ -24,7 +26,8 @@ Issue URL → Clone → Retrieve → Plan → [your approval] → Code → Test 
 ```
 
 Built on LangGraph, with tools discovered dynamically over MCP and all execution
-confined to a throwaway Docker container.
+confined to a throwaway Docker container. It runs from a terminal, from an HTTP
+API, or from [a page you can watch it work on](#watching-a-run-in-a-browser).
 
 **Validated on a real repository.** It completed an end-to-end repair of a genuine
 bug in [`pallets/click`](https://github.com/pallets/click) — 924k characters of
@@ -62,13 +65,14 @@ rather than the way it was planned.
 | | Outcome |
 |---|---|
 | Real repository | End-to-end repair of a genuine `pallets/click` bug, repair loop fired live — 1 of 6 ground-truth cases run |
+| Issue URL → pull request | Runs unattended on a deployed host and [opens the PR itself](https://github.com/Ekam-Bitt/taskflow/pull/6) — DFS replaced with Kahn's algorithm, cycle detection fixed as a side effect |
 | Retrieval benchmark | P@3 **0.33 → 0.83** on click, **0.25 → 0.67** across both repositories, offline and free |
 | Second repository | Generalises in direction, not magnitude — rich 0.17 → 0.50, flat layout, no `src/` to exploit |
 | Correctness driver | **Ranking, not recall.** The right file was already in the candidate set in 6/6 cases |
 | Cost finding | Better retrieval bought correctness and **not** cost — $1.219 to pass vs $1.226 to fail |
 | Toy fixture | 5/5 solved — and a one-shot prompt with no tools, tests or repair loop tied it at 40% of the cost |
-| Tests | 436 offline (no Docker, no datastore, no API key) + 30 gated behind real infrastructure |
-| Total spend | **$8.43**, of which $3.77 bought four failed runs and one lesson about instruments |
+| Tests | 497 offline (no Docker, no datastore, no API key) + 30 gated behind real infrastructure |
+| Spend through v1.0 | **$8.43**, of which $3.77 bought four failed runs and one lesson about instruments |
 
 ## The findings in one line each
 
@@ -320,6 +324,7 @@ fix. Both are reported per case so results can be segmented instead of averaged.
 - Python 3.13, via [`uv`](https://docs.astral.sh/uv/)
 - An Anthropic API key
 - [`gh`](https://cli.github.com), authenticated — only to publish pull requests
+- Node 22 — only for the [browser frontend](#watching-a-run-in-a-browser)
 
 ## Quickstart
 
@@ -359,6 +364,53 @@ curl -XPOST localhost:8080/runs/{id}/publish -d '{"draft":true}' \
 ```
 
 `GITHUB_TOKEN` is used when set; otherwise `gh`'s own credential is.
+
+## Watching a run in a browser
+
+The claim worth making is not "it opened a pull request" — it is *here is the
+reasoning, the tool calls, the failing test, the repair, and then the pull
+request*. That claim is invisible in a terminal only its author runs, which is
+what [`web/`](web/) exists for: paste an issue link, approve the plan when it
+parks, and watch the phases, tool calls, per-role spend and diff arrive live over
+SSE.
+
+```bash
+docker compose up -d --wait     # postgres + redis
+uv run fpilot serve             # the API on 127.0.0.1:8080
+cd web && npm install && npm run dev
+```
+
+`NEXT_PUBLIC_FP_API_URL` names the API and defaults to `http://localhost:8080`,
+so a fresh clone runs with no env file. `web/README.md` covers the rest —
+including the bug that justified the smoke test, where the API sends two
+different JSON shapes under the same SSE event names and both silently vanished
+while types and unit tests passed.
+
+## Deploying it
+
+The sandbox drives the Docker API directly, so it needs a **real daemon**. That
+one fact rules out Render, Railway, Fly, Koyeb, Cloud Run and Fargate at any
+price — a capability limit, not a pricing one. What is left:
+
+| | Cost | Good for |
+|---|---|---|
+| [GitHub Actions](.github/workflows/solve.yml) | free on public repos | one-off runs, reproducible demos |
+| **Any free VM + tunnel** (Oracle Always Free) | free | an always-on API a browser can call |
+
+The second row is what actually runs: an Always Free ARM instance provisioned by
+[Terraform](deploy/terraform-oci/), the API under systemd, and a `cloudflared`
+tunnel for the HTTPS a browser insists on. It deploys itself — a systemd timer
+resets to `main`, syncs, restarts, and health-checks, and CI then confirms the
+commit over that HTTPS rather than reaching in over SSH. Pull, not push, because
+the host's SSH is open to one address and a runner is never at it; the first
+version of that workflow tried to SSH in and timed out, which is how the design
+got decided. `/health` reports its running commit for exactly this reason.
+The frontend is a separate concern and deploys to Vercel from `web/` on push.
+
+[deploy/README.md](deploy/README.md) has all three, the public-mode settings
+(`FP_MAX_USD_PER_DAY`, `FP_MAX_CONCURRENT_RUNS`, `FP_ALLOW_LOCAL_REPOS`,
+`FP_API_CORS_ORIGINS`), how a visitor's own keys stay scoped to their run, and
+the Oracle iptables trap that costs an afternoon if you meet it unwarned.
 
 `ANTHROPIC_API_KEY` is the only value you must set. Everything else has a working
 local default — embeddings run offline, tracing is a no-op without a LangSmith key,
@@ -412,7 +464,7 @@ curl -fsSL https://cli.langsmith.com/install.sh | sh
 ## Tests
 
 ```bash
-uv run pytest              # 436 tests: seams + units. No Docker, no datastore, no API calls
+uv run pytest              # 497 tests: seams + units. No Docker, no datastore, no API calls
 uv run pytest -m docker    # 26 tests: real container, real MCP servers
 uv run pytest -m postgres  # 2 tests: checkpoint round-trip against the compose Postgres
 uv run pytest -m llm       # real model calls (costs tokens)
@@ -425,7 +477,7 @@ abstraction is decorative — that constraint *is* the test.
 
 That constraint is also what makes CI cheap: every push runs `ruff check`,
 `ruff format --check`, `mypy src eval` and the offline suite, with no daemon, no
-datastore and no API key. CI reports **350 passed, 8 skipped** — the 8 need a local
+datastore and no API key. CI reports **489 passed, 8 skipped** — the 8 need a local
 fixture virtualenv that isn't committed. `mypy` covers the evaluation harness as
 well as the agent, because three of this project's bugs corrupted *scoring*
 silently, and a harness that miscounts is worse than no harness.
@@ -438,9 +490,29 @@ reach a real provider by accident.
 
 ## Status
 
-**v1.0.** Complete, with limitations documented below rather than hidden. Remaining
-work is filed as issues and deliberately unbuilt — each strengthens an existing
-claim rather than unlocking a new one.
+**v1.0** is the tag on the measurement work above, and the limitations below are
+still the honest ones — they are documented rather than hidden, and what remains
+of that line of work is filed as issues and deliberately unbuilt, because each
+strengthens an existing claim rather than unlocking a new one.
+
+Since that tag the agent has stopped being a thing that produces a diff on a
+laptop. Added after v1.0, and not covered by any number above:
+
+- **Public issue URL through to a real pull request** — clone, solve, then a
+  second gate showing the exact branch, title and body before it forks, pushes
+  and opens the PR. Re-publishing updates that one PR instead of opening another.
+- **A deployed host that runs it unattended**, deploys itself from `main`, and has
+  [opened a pull request of its own](https://github.com/Ekam-Bitt/taskflow/pull/6).
+- **A browser frontend**, so the reasoning is legible to someone who is not the
+  author — the whole point of the project being watchable rather than merely
+  reported.
+- **Multi-tenant credentials and public-mode guardrails** — a visitor's keys are
+  scoped to their run, held in memory, and absent from every event that leaves the
+  process; runs on the operator's key are capped daily and forced to open drafts.
+
+The spend figure above is scoped to v1.0 deliberately: it is the cost of the
+experiments, and the work since has been engineering rather than measurement, so
+folding the two together would blur the one number the findings depend on.
 
 ## Known limitations
 
@@ -457,3 +529,12 @@ claim rather than unlocking a new one.
 - **Phase 1B (embeddings, BM25, hybrid, reranking) is deliberately not built.**
   Content-based ranking got P@3 to 0.83 without it, and the offline benchmark exists
   so the next strategy has to prove itself rather than be assumed better.
+- **The fork path has unit coverage but no live proof.** Every pull request opened
+  end to end so far has been on a repository I own, where there is nothing to fork
+  and the branch goes straight there. Forking, then opening a cross-repo PR from
+  `user:branch`, is implemented and tested against a fake `gh`, but has not yet run
+  against a repository belonging to someone else.
+- **Run records live in memory.** The graph checkpoints to Postgres, so a killed run
+  resumes — but the record the browser polls does not survive an API restart, which
+  is why there is no history page. A page that is sometimes blank is worse than
+  none.
